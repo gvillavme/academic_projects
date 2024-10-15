@@ -2,6 +2,7 @@
 _My academic projects, carried out during my years of study at the Toulouse School of Economics (TSE)._
 
 **PROJECT (03 - 2024) EURO_ELEC_MARKET : "La réforme nécessaire du marché européen de l'électricité" | "The Necessary Reform of the European Electricity Market"**
+
 _Présentation Orale_ - _Oral Presentation_
 
 Basé sur la note du CAE de mars 2023, ce rapport analyse les défis de la réforme du marché européen de l'électricité, axés sur la transition vers une économie décarbonée, la sécurité d'approvisionnement et la stabilisation des prix. Il examine les disparités entre États membres et propose des solutions pour intégrer davantage d'énergies renouvelables tout en garantissant une gestion efficace de l'offre et de la demande. Le rapport souligne l'importance d'une coordination européenne pour atteindre les objectifs de durabilité et de croissance économique.
