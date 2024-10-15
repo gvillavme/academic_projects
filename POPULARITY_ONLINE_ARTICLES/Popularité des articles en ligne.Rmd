@@ -1,0 +1,1801 @@
+---
+title: "projet App Stat"
+author: "Elyas Ben Jebara, Guillaume Maurin"
+date: "2024-03-11"
+output:  
+ html_document:
+    css: styles.css
+    toc: true
+    toc_depth: 3
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+```{r Libraries, message=FALSE, echo=FALSE}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(caret)
+library(rpart)
+library(ISLR)
+library(parallel)
+library(doSNOW)
+library(ModelMetrics)
+library(AppliedPredictiveModeling)
+library(MLeval)
+library(RColorBrewer)
+library(klaR)
+library(ISLR)
+library(splines)
+library(pracma)
+library(boot)
+```
+
+# I. Introduction:
+
+
+À l'ère de la numérisation, où les réseaux sociaux et plus largement Internet deviennent les premiers vecteurs d'information, la consultation d'articles en ligne est devenue une pratique courante, reléguant les supports papier à un rôle secondaire. Dans ce contexte, la quantité de partages d'un article sur les réseaux sociaux est devenue un indicateur de son influence et de sa portée. Reconnaissant cette tendance, la recherche menée par Fernandes, Vinagre et Cortez en 2015 a mis en lumière l'importance des métriques en ligne, en collectant et en analysant une vaste collection de données sur plus de 35 000 articles. 
+Ces données, extraites de la base Online News Popularity de l'UCI, incluent des informations telles que le style d'écriture, la longueur des articles, le jour de publication et, crucial pour notre étude, le nombre de partages des articles. 
+Notre but est d'approfondir cette recherche, en se focalisant sur la variable « partages » comme indicateur de popularité, pour la modéliser statistiquement et prédire quel contenu captivera l'audience. Nous cherchons à comprendre quelles variables, parmi celles issues de la base de données Online News Popularity, ont le plus d'impact sur la popularité d'un article en ligne, afin de pouvoir anticiper le niveau d'engagement que cet article est susceptible de générer une fois publié. L'objectif est de construire des modèles pour estimer la popularité future d'un article, sur la base de caractéristiques quantifiables, contribuant ainsi à optimiser la création de contenu. 
+Notre étude s'inscrit dans le sillage de l'analyse pionnière de Kelwin Fernandes, Pedro Vinagre et Paulo Cortez intitulée "A proactive intelligent Decision support system for Predicting the popularity of online news", qui examine l'impact des caractéristiques des articles sur leur popularité. Cette recherche a porté sur des articles issus de Mashable, plateforme mondiale de divertissement et d'information numérique fondée en 2005, connue pour couvrir les dernières tendances en technologie, culture numérique, et divertissement. . La recherche met en avant l'influence du style d'écriture, de la longueur des articles, et de la richesse multimédia sur les interactions sociales. D'autres études, telles que celles de Ting et Brochu (2017) et Kari et al. (2016), ont également exploré l'utilisation de ces données pour approfondir la compréhension des mécanismes sous-jacents à la popularité en ligne, en appliquant des méthodes avancées d'analyse et de prédiction. 
+
+La littérature souligne l'importance capitale du partage, où un nombre de partages important est synonyme d'une plus grande influence. De plus, la caractérisation des styles d'écriture ouvre de nouvelles possibilités pour comprendre comment cet élément influence l'engagement et la réceptivité du public. Bien que l'accès direct à certaines études complémentaires soit restreint, les discussions générales dans le domaine confirment que les caractéristiques qualitatives et quantitatives du contenu des articles peuvent significativement affecter leur popularité.
+
+Notre projet se concentre sur une question fondamentale :
+**Comment les différentes caractéristiques des articles en ligne, telles que leur contenu, style, et éléments visuels, influencent-ils le nombre de leurs partages sur les réseaux sociaux ?** 
+
+Nous entamons notre projet par une analyse exploratoire pour comprendre la distribution des variables et leurs relations, ce qui est essentiel pour identifier les facteurs influençant le plus les partages d'articles. Nous appliquerons ensuite une variété de techniques de modélisation, allant de la régression linéaire aux forêts aléatoires et méthodes plus sophistiquées comme le KNN, pour prédire la popularité des articles. L'expérimentation avec un modèle de clustering K-means nous permettra également de segmenter les articles, visant à affiner nos prédictions. L'évaluation des modèles par la validation croisée nous guidera vers les techniques les plus performantes, avec pour objectif final de formuler des recommandations basées sur les caractéristiques déterminant la popularité des articles en ligne.
+
+# II. Présentation, et analyse descriptive des données:
+
+## A. Importation et présentation de la base de données:
+
+Notre base de données, "Online News Popularity", est issue de l'UCI Machine Learning Repository. Elle a été collectée depuis le site internet Mashable, qui recense des milliers d'articles. Cette base de donnée compile des informations sur plus de 39,000 articles publiés par Mashable sur deux ans, avec pour objectif de prédire le nombre de partages sur les réseaux sociaux. Cette base contient 61 variables, dont le style d'écriture, la longueur des articles, et le nombre de partages ("shares"). Utilisée dans diverses recherches, elle a servi à explorer l'impact des caractéristiques des articles sur leur popularité en ligne.
+
+```{r Chargement des données, message=FALSE, echo=FALSE}
+library(readr)
+
+url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/00332/OnlineNewsPopularity.zip"
+
+# Télécharger et décompresser la bdd
+temp <- tempfile()
+download.file(url, temp)
+data_dir <- tempdir()
+unzip(temp, exdir = data_dir)
+unlink(temp) 
+file_path <- file.path(data_dir, "OnlineNewsPopularity/OnlineNewsPopularity.csv")
+online_news_popularity <- read_csv(file_path)
+
+# Afficher la bdd
+head(online_news_popularity)
+```
+```{r Exlucsion des outliers, message=FALSE, echo=FALSE}
+onp <- online_news_popularity
+# Liste des noms de variables numériques
+numeric_vars <- c("timedelta", "n_tokens_title", "n_tokens_content", "n_unique_tokens", 
+                  "n_non_stop_words", "n_non_stop_unique_tokens", "num_hrefs", "num_self_hrefs", 
+                  "num_imgs", "num_videos", "average_token_length", "num_keywords", 
+            
+                  "kw_min_min", "kw_max_min", "kw_avg_min", "kw_min_max", "kw_max_max", 
+                  "kw_avg_max", "kw_min_avg", "kw_max_avg", "kw_avg_avg", 
+                  "self_reference_min_shares", "self_reference_max_shares", "self_reference_avg_sharess", 
+                  "global_subjectivity", "global_sentiment_polarity", "global_rate_positive_words", 
+                  "global_rate_negative_words", "rate_positive_words", "rate_negative_words", 
+                  "avg_positive_polarity", "min_positive_polarity", "max_positive_polarity", 
+                  "avg_negative_polarity", "min_negative_polarity", "max_negative_polarity", 
+                  "title_subjectivity", "title_sentiment_polarity", "abs_title_subjectivity", 
+                  "abs_title_sentiment_polarity", "shares")
+
+# Boucle pour enlever les outliers
+for(var in numeric_vars) {
+  Q1 <- quantile(onp[[var]], 0.25, na.rm = TRUE)
+  Q3 <- quantile(onp[[var]], 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  
+  # Définition des bornes
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  
+  # Filtrage des données pour exclure les valeurs aberrantes
+  onp <- onp[onp[[var]] >= lower_bound & onp[[var]] <= upper_bound, ]
+}
+
+dim(onp)
+dim(online_news_popularity)
+```
+
+L'élimination des valeurs aberrantes est une étape cruciale dans la préparation des données pour l'analyse et la prédiction, particulièrement lorsqu'il s'agit d'étudier l'impact de diverses caractéristiques sur la popularité des articles en ligne. Les outliers peuvent fausser les résultats d'une analyse en exerçant une influence disproportionnée sur la moyenne, la médiane, et d'autres statistiques descriptives, ainsi que sur les modèles prédictifs. Pour identifier et exclure ces valeurs atypiques, nous avons adopté une méthode basée sur l'écart interquartile (IQR). En calculant l'IQR pour chaque variable numérique non binaire et en définissant des seuils au-delà desquels les observations sont considérées comme des outliers (typiquement, en dessous du premier quartile moins 1.5 fois l'IQR et au-dessus du troisième quartile plus 1.5 fois l'IQR), nous avons pu filtrer ces valeurs atypiques. Cette approche a permis de réduire notre ensemble de données à 5450 observations, offrant ainsi une base plus cohérente et représentative pour la prédiction du nombre de partages d'un article. Cette taille de données réduite et plus homogène est essentielle pour augmenter la précision et la fiabilité de nos modèles prédictifs, en nous assurant que ces derniers reflètent les tendances réelles plutôt que d'être influencés par des cas extrêmes non représentatifs.
+
+
+
+## B. La variable d'interet (shares):
+
+```{r Distribution de Shares, echo=FALSE, message=FALSE}
+summary(online_news_popularity$shares)
+
+hist(onp$shares, main = "Distribution of Shares", xlab = "Shares", col = "blue", breaks = 50)
+boxplot(onp$shares, main = "Boxplot of Shares", ylab = "Shares", col = "red")
+summary(onp$shares)
+```
+
+La variable "shares" joue un rôle central dans notre analyse, en tant qu'indicateur direct du degré de popularité d'un article sur les réseaux sociaux.
+
+Initialement, la distribution de cette variable révèle une large variété dans le nombre de partages, s'étendant de 1 à 843,300, avec une médiane à 1400 et une moyenne significativement plus élevée à 3395, ce qui indique une distribution fortement asymétrique avec une présence marquée de valeurs extrêmes.
+
+Pour améliorer la précision de nos prédictions et minimiser l'effet des valeurs aberrantes, une démarche de nettoyage des données a été entreprise. En calculant l'écart interquartile (IQR) et en définissant des bornes spécifiques, nous avons filtré les données pour concentrer notre analyse sur une gamme de partages plus représentative de la majorité des articles, réduisant ainsi le maximum à 3200 partages. 
+Cette démarche méthodique nous permet de disposer d'une distribution ajustée, avec une médiane ajustée à 1100 partage et une moyenne à 1239.
+
+## C. Catégorisation des variables et analyses univariées:
+
+Dans notre étude, pour mieux comprendre nos variables, nous avons catégorisé les variables de la base de données "Online News Popularity" en cinq groupes principaux pour une analyse approfondie de leur impact sur la popularité des articles en ligne. Ces groupes sont définis comme les caractéristiques liées au contenu de l'article, les éléments multimédias intégrés, la présence et le type de liens, les détails temporels relatifs à la publication, et enfin les aspects stylistiques et thématiques du texte. 
+
+```{r Groupes de variables, message=FALSE, echo=FALSE}
+
+library(tibble)
+
+# Tableau 1: Contenu de l'article
+content_variables <- tibble(
+  Variable = c("n_tokens_title", "n_tokens_content", "n_unique_tokens", "n_non_stop_words", 
+               "n_non_stop_unique_tokens", "average_token_length", "num_keywords"),
+  Description = c("Number of words in the title", "Number of words in the content", 
+                  "Rate of unique words in the content", "Rate of non-stop words in the content", 
+                  "Rate of unique non-stop words in the content", "Average length of the words in the content", 
+                  "Number of keywords in the metadata")
+)
+
+# Tableau 2: Multimédia
+multimedia_variables <- tibble(
+  Variable = c("num_imgs", "num_videos"),
+  Description = c("Number of images", "Number of videos")
+)
+
+# Tableau 3: Liens
+links_variables <- tibble(
+  Variable = c("num_hrefs", "num_self_hrefs"),
+  Description = c("Number of links", "Number of links to other articles published by Mashable")
+)
+
+# Tableau 4: Temporalité et publication
+time_variables <- tibble(
+  Variable = c("timedelta", "weekday_is_monday", "weekday_is_tuesday", "weekday_is_wednesday", 
+               "weekday_is_thursday", "weekday_is_friday", "weekday_is_saturday", 
+               "weekday_is_sunday", "is_weekend"),
+  Description = c("Days between the article publication and the dataset acquisition", 
+                  "Was the article published on a Monday?", "Was the article published on a Tuesday?", 
+                  "Was the article published on a Wednesday?", "Was the article published on a Thursday?", 
+                  "Was the article published on a Friday?", "Was the article published on a Saturday?", 
+                  "Was the article published on a Sunday?", "Was the article published on the weekend?")
+)
+
+# Tableau 5: Style d'écriture et sujet
+style_subject_variables <- tibble(
+  Variable = c("data_channel_is_lifestyle", "data_channel_is_entertainment", "data_channel_is_bus", 
+               "data_channel_is_socmed", "data_channel_is_tech", "data_channel_is_world", 
+               "global_subjectivity", "global_sentiment_polarity", "global_rate_positive_words", 
+               "global_rate_negative_words", "rate_positive_words", "rate_negative_words", 
+               "avg_positive_polarity", "min_positive_polarity", "max_positive_polarity", 
+               "avg_negative_polarity", "min_negative_polarity", "max_negative_polarity", 
+               "title_subjectivity", "title_sentiment_polarity", "abs_title_subjectivity", 
+               "abs_title_sentiment_polarity"),
+  Description = c("Is data channel 'Lifestyle'?", "Is data channel 'Entertainment'?", "Is data channel 'Business'?", 
+                  "Is data channel 'Social Media'?", "Is data channel 'Tech'?", "Is data channel 'World'?", 
+                  "Text subjectivity", "Text sentiment polarity", "Rate of positive words in the content", 
+                  "Rate of negative words in the content", "Rate of positive words among non-neutral tokens", 
+                  "Rate of negative words among non-neutral tokens", "Avg. polarity of positive words", 
+                  "Min. polarity of positive words", "Max. polarity of positive words", "Avg. polarity of negative words", 
+                  "Min. polarity of negative words", "Max. polarity of negative words", "Title subjectivity", 
+                  "Title polarity", "Absolute subjectivity level", "Absolute polarity level")
+)
+```
+
+### 1. Contenu de l'article:
+
+```{r Concent_Variables, message=FALSE, echo=FALSE}
+# Affichage des tableaux
+print(content_variables)
+```
+
+La première catégorie, "Contenu de l'article", se concentre sur la structure textuelle et la richesse linguistique des articles. Elle englobe le nombre de mots dans le titre et le contenu, le taux de mots uniques, ainsi que la présence de mots non-stop, indiquant la diversité et la densité du texte. Cette catégorie inclut également la longueur moyenne des mots et le nombre de mots-clés.
+
+*n_tokens_title* : Nombre de mots dans le titre
+*n_tokens_content* : Nombre de mots dans le contenu
+*n_unique_tokens* : Taux de mots uniques dans le contenu
+*n_non_stop_words* : Taux de mots non-stop dans le contenu
+*n_non_stop_unique_tokens* : Taux de mots non-stop uniques dans le contenu
+*average_token_length* : Longueur moyenne des mots dans le contenu
+*num_keywords* : Nombre de mots-clés dans les métadonnées
+
+Analyses de la variable *nombre de mots dans le titre* :
+
+```{r Distribution WordsinTitle, message=FALSE, echo=FALSE}
+library(ggplot2)
+
+par(mfrow = c(1,2))
+
+# n_tokens_title
+hist(onp$n_tokens_title, main = "Distribution of Words in Title", xlab = "Number of Words in Title", col = "blue", breaks = 30)
+boxplot(onp$n_tokens_title, main = "Boxplot of Words in Title", ylab = "Number of Words in Title", col = "red")
+
+```
+L'histogramme montre une distribution concentrée du nombre de mots dans les titres d'articles, avec une fréquence maximale pour les titres contenant entre 9 et 12 mots. Cela indique une préférence pour les titres concis et informatifs dans la rédaction d'articles en ligne. Le boxplot associé révèle que la moitié (séparée par le trait noir de la médiane) des données se situe dans une plage étroite, démontrant une proximité dans la longueur des titres choisis par les rédacteurs, avec peu d'outliers, qui indiqueraient des titres extrêmement courts ou longs.
+
+
+Analyses de la variable *nombre de mots dans l'article* :
+
+```{r Distribution WordsinContent, message=FALSE, echo=FALSE}
+# n_tokens_content
+par(mfrow = c(1, 2))
+hist(onp$n_tokens_content, main = "Distribution of Words in Content", xlab = "Number of Words in Content", col = "blue", breaks = 50)
+boxplot(onp$n_tokens_content, main = "Boxplot of Words in Content", ylab = "Number of Words in Content", col = "red")
+
+```
+L'histogramme de la variable *nombre de mots dans l'article* dévoile une distribution asymétrique vers la gauche, avec une concentration élevée d'articles ayant un nombre de mots au alantour de 330, ce qui équivaut à environ une page de texte. Le boxplot révèle une médiane sous les 500 mots et la présence de quelques valeurs extrêmes, signalant que bien que la majorité des articles sont relativement courts, certains articles sont nettement plus longs, augmentant ainsi la moyenne au-delà de la médiane. Cette distribution suggère que les rédacteurs tendent à privilégier la concision, tout en permettant occasionnellement des articles plus détaillés, sans doute selon le thème abordé.
+
+
+Analyses de la variable *taux de mots unique dans l'article* :
+
+
+```{r Distribution UniqueWordRates, message=FALSE, echo=FALSE}
+# n_unique_tokens
+par(mfrow = c(1, 2))
+hist(onp$n_unique_tokens, main = "Distribution of Unique Word Rates in Content", xlab = "Rate of Unique Words", col = "blue", breaks = 40)
+boxplot(onp$n_unique_tokens, main = "Boxplot of Unique Word Rates in Content", ylab = "Rate of Unique Words", col = "red")
+
+```
+
+L'histogramme du *taux de mots unique dans l'article* dans les articles révèle une distribution empirique centrée autour d'une valeur médiane, suggérant une tendance générale vers une diversité de vocabulaire modérée à élevée. Le boxplot souligne cette centralité, avec une médiane proche de 0.5 et une répartition relativement homogène, malgré quelques valeurs extrêmes. Ces données indiquent que les rédacteurs maintiennent une certaine richesse lexicale dans leur contenu, sans pour autant recourir excessivement à un vocabulaire trop varié, ce qui pourrait refléter un équilibre entre l'accessibilité du contenu et la sophistication linguistique, peut-être pour évoquer des sujets plus techniques.
+
+Analyses de la variable *nombre de mots clef recensés dans l'article depuis les métadonnées* :
+
+
+```{r Distribution Keywords, message=FALSE, echo=FALSE}
+par(mfrow = c(1, 2))
+hist(onp$num_keywords, main = "Distribution of Keywords in Metadata", xlab = "Number of Keywords", col = "blue", breaks = 10)
+boxplot(onp$num_keywords, main = "Boxplot of Keywords in Metadata", ylab = "Number of Keywords", col = "red")
+
+```
+L'histogramme et le boxplot pour la variable *nombre de mots clef recensés dans l'article depuis les métadonnées* montrent une préférence pour une quantité modérée à élevée de mots-clés par article, avec la majorité des articles utilisant entre 4 et 10 mots-clés. La distribution semble légèrement asymétrique vers un nombre élevé de mots-clés, tandis que la médiane, indiquée par le boxplot, suggère que la moitié des articles contient un nombre de mots-clés proche de 7. Peu de valeurs extrêmes sont observées, ce qui indique une relative uniformité dans l'approche de l'utilisation des mots-clés par les rédacteurs pour la description et le référencement des articles.
+
+
+Les analyses univariées des variables de la catégorie **Contenu de l'article** suggèrent plusieurs tendances éditoriales dans la base de données "Online News Popularity". Il y a une tendance vers des articles plus courts, ce qui peut refléter une stratégie pour maintenir l'engagement du lecteur dans un environnement numérique où l'attention est limitée. La diversité lexicale des articles est modérée, indiquant une balance entre accessibilité et profondeur du contenu. Enfin, l'utilisation stratégique des mots-clés suggère une conscience des impératifs de référencement. Ces variables dépeignent une image de la rédaction en ligne qui est ciblée et adaptée aux comportements de consommation de contenu sur internet.
+
+
+### 2. Multimédia
+
+La deuxième catégorie, **Multimédia**, aborde la dimension visuelle et interactive des articles en ligne à travers le nombre d'images et de vidéos intégrées. Cette catégorie reflète l'importance des éléments multimédias dans l'enrichissement du contenu et l'engagement du lecteur, suggérant que la présence de supports visuels peut significativement influencer la popularité et le partage des articles sur les réseaux sociaux.
+
+*num_imgs* : Nombre d'images
+*num_videos* : Nombre de vidéos
+
+```{r Multimedia_Variables, message=FALSE, echo=FALSE}
+print(multimedia_variables)
+```
+
+```{r Summary Multimédia, message=FALSE, echo=FALSE}
+summary(onp$num_imgs)
+summary(onp$num_videos)
+```
+
+Analyses de la variable *nombre d'image dans l'article* :
+
+```{r NbImages, message=FALSE, echo=FALSE}
+library(gridExtra)
+
+# Analyse pour num_imgs
+p1 <- ggplot(onp, aes(x = num_imgs)) + 
+  geom_histogram(fill = "blue", color = "black", binwidth = 1) +
+  labs(title = "Distribution of Images in Articles", x = "Number of Images", y = "Frequency")
+
+p2 <- ggplot(onp, aes(x = 1, y = num_imgs)) +
+  geom_boxplot(fill = "red") +
+  labs(title = "Boxplot of Images in Articles", y = "Number of Images")
+
+# Combinaison des deux graphiques pour num_imgs
+grid.arrange(p1, p2, ncol=2)
+```
+
+Analyses de la variable *nombre de videos dans l'article* :
+
+
+```{r NbVidéos, message=FALSE, echo=FALSE}
+# Analyse pour num_videos
+p3 <- ggplot(onp, aes(x = num_videos)) + 
+  geom_histogram(fill = "green", color = "black", binwidth = 1) +
+  labs(title = "Distribution of Videos in Articles", x = "Number of Videos", y = "Frequency")
+
+p4 <- ggplot(onp, aes(x = 1, y = num_videos)) +
+  geom_boxplot(fill = "orange") +
+  labs(title = "Boxplot of Videos in Articles", y = "Number of Videos")
+
+# Combinaison des deux graphiques pour num_videos
+grid.arrange(p3, p4, ncol=2)
+```
+
+Les distributions du nombre d'images et de vidéos dans les articles montrent des préférences éditoriales distinctes. Pour les images, la plupart des articles comprennent une ou deux images, avec une moyenne légèrement supérieure à un, indiquant une tendance à illustrer les contenus sans encombrer visuellement le texte. Le boxplot confirme cette tendance en montrant peu de valeurs aberrantes, ce qui suggère une norme établie dans l'usage d'images. 
+
+En revanche, les vidéos sont nettement moins utilisées, avec la majorité des articles n'en incorporant pas du tout, comme le révèle la médiane et le premier quartile à zéro. Cela peut refléter une approche où les vidéos sont utilisées avec parcimonie, probablement en raison de considérations de format ou d'engagement utilisateur. Les valeurs aberrantes indiquent des cas particuliers où les articles sont enrichis avec deux vidéos maximum.
+
+### 3. Liens
+
+La troisième catégorie, **Liens**, se penche sur l'intégration et la pertinence des hyperliens dans les articles, à travers deux variables distinctes : *le nombre total de liens* (num_hrefs) et *le nombre de liens pointant vers d'autres articles de Mashable* (num_self_hrefs). Cette catégorie souligne l'importance de la connectivité et de l'autoréférence dans le contenu, indiquant comment les articles s'insèrent dans un réseau plus large d'informations et contribuent à l'écosystème de contenu d'un média, pouvant ainsi influencer leur visibilité et leur partage.
+
+*num_hrefs* : Nombre de liens
+*num_self_hrefs* : Nombre de liens vers d'autres articles publiés par Mashable
+
+```{r Liens_Variables, message=FALSE, echo=FALSE}
+print(links_variables)
+```
+
+On va s'interesser à la variable **nombre de lien référencés dans l'article** pour une étude univariée.
+
+```{r NbHREFS, message=FALSE, echo=FALSE}
+# Analyse pour num_hrefs
+p1 <- ggplot(onp, aes(x = num_hrefs)) + 
+  geom_histogram(fill = "purple", color = "black", binwidth = 5) +
+  labs(title = "Distribution of Links in Articles", x = "Number of Links", y = "Frequency")
+
+p2 <- ggplot(onp, aes(x = 1, y = num_hrefs)) +
+  geom_boxplot(fill = "yellow") +
+  labs(title = "Boxplot of Links in Articles", y = "Number of Links")
+
+# Combinaison des deux graphiques pour num_hrefs
+grid.arrange(p1, p2, ncol=2)
+```
+
+L'histogramme de la distribution du *nombre de liens par article* montre une prédominance d'articles avec un petit nombre de liens, la majorité ayant moins de 10 liens. Cela pourrait indiquer une stratégie de contenu axée sur l'autonomie de l'article ou des considérations de référencement SEO ciblées. Le boxplot révèle que, bien que l'étendue des données soit large, avec des outliers représentant des articles avec un nombre élevé de liens, la concentration centrale se situe bien en dessous, indiquant que les valeurs extrêmes ne sont pas la norme. Cette approche prudente de l'inclusion de liens externes pourrait viser à garder les lecteurs engagés sur l'article actuel plutôt que de les diriger vers d'autres sites. Il faut également prendre en compte la nécessité de citer ses sources, pour des articles plus techniques, qui peut ainsi augmenter la quantité de liens.
+
+### 4. Temporalité de la publication
+
+La quatrième catégorie, intitulée **Temporalité de la Publication**, se concentre sur les aspects temporels et de programmation de publication des articles. Cette catégorie comprend plusieurs variables qui fournissent des informations sur le moment de la publication de chaque article, ainsi que sur la durée écoulée depuis sa publication jusqu'à l'acquisition des données.
+
+*timedelta* : Jours entre la publication de l'article et l'acquisition des données
+*weekday_is_monday* : L'article a-t-il été publié un lundi ?
+*weekday_is_tuesday* : Un mardi ?
+*weekday_is_wednesday* : Un mercredi ?
+*weekday_is_thursday* : Un jeudi ?
+*weekday_is_friday* : Un vendredi ?
+*weekday_is_saturday* : Un samedi ?
+*weekday_is_sunday* : Un dimanche ?
+*is_weekend* : L'article a-t-il été publié le weekend ?
+
+```{r Time_Variables, message=FALSE, echo=FALSE}
+print(time_variables)
+```
+
+On va s'intéresser à la variable *le nombre de jours entre la publication de l'article et l'acquisition des données* :
+
+```{r Distribution DaysBetweenPub, message=FALSE, echo=FALSE }
+p1 <- ggplot(onp, aes(x = timedelta)) + 
+  geom_histogram(fill = "cyan", color = "black", binwidth = 10) +
+  labs(title = "Distribution of Days Between Publication and Data Acquisition", x = "Timedelta (Days)", y = "Frequency")
+
+p2 <- ggplot(onp, aes(x = 1, y = timedelta)) +
+  geom_boxplot(fill = "magenta") +
+  labs(title = "Boxplot of Days Between Publication and Data Acquisition", y = "Timedelta (Days)")
+
+# Combinaison des deux graphiques pour timedelta
+grid.arrange(p1, p2, ncol=2)
+```
+
+L'histogramme des jours écoulés entre la publication des articles et leur collecte pour la base de données montre une distribution cyclique, ce qui pourrait indiquer des périodes de collecte régulières ou des pics saisonniers dans la publication d'articles. Le boxplot, quant à lui, montre une médiane relativement centrale avec une répartition symétrique des données autour de celle-ci, malgré quelques valeurs extrêmes. Ces valeurs pourraient refléter des articles soit très récents, soit beaucoup plus anciens par rapport à la date d'acquisition des données. 
+
+
+On va maintenant voir quel jour les articles sont d'habitude publié et cela en analysant les variable binaires du **jour de la publication** :
+
+```{r Distribution Weekday, message=FALSE, echo=FALSE}
+library(dplyr)
+library(tidyr)
+# Préparation des données
+days_counts <- onp %>%
+  summarise(
+    Monday = sum(weekday_is_monday),
+    Tuesday = sum(weekday_is_tuesday),
+    Wednesday = sum(weekday_is_wednesday),
+    Thursday = sum(weekday_is_thursday),
+    Friday = sum(weekday_is_friday),
+    Saturday = sum(weekday_is_saturday),
+    Sunday = sum(weekday_is_sunday)
+  ) %>%
+  gather(key = "Day", value = "Count")
+
+library(ggplot2)
+
+library(tidyr)
+
+# Création du graphique
+ggplot(days_counts, aes(x = Day, y = Count, fill = Day)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Articles Published by Day of the Week", x = "Day of the Week", y = "Number of Articles") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Ce graphique en barres illustre le nombre d'articles publiés par jour de la semaine, révélant des tendances de publication marquées. Les articles sont le plus fréquemment publiés en milieu de semaine, avec un pic le mardi, suivi de près par le jeudi et le mercredi, puis par le lundi. Le nombre diminue le weekend, avec le samedi et le dimanche affichant le nombre le plus bas de publications. Cette distribution peut être influencée par des stratégies éditoriales visant à capter l'attention des lecteurs lorsque l'engagement est susceptible d'être plus élevé, c'est-à-dire en semaine.
+
+### 5. Style d'Écriture et Sujet
+
+La cinquième catégorie, **Stylé d'écriture et sujet**, comprend des variables qui caractérisent à la fois le style d'écriture et le sujet des articles, en identifiant les différentes catégories auxquelles ils appartiennent. De plus, cette catégorie comprend une gamme de mesures de subjectivité et de polarité, telles que la subjectivité globale, la polarité globale, le taux de mots positifs et négatifs, ainsi que la polarité moyenne, minimale et maximale des mots. Enfin, elle évalue également la subjectivité et la polarité spécifiques au titre de l'article, fournissant ainsi un aperçu complet de la tonalité et du contenu émotionnel des articles.
+
+Catégories de l'article :
+
+*data_channel_is_lifestyle* : Thème Lifestyle
+*data_channel_is_entertainment* : Thème Divertissement
+*data_channel_is_bus* : Thème Affaires
+*data_channel_is_socmed* : Thème Médias Sociaux
+*data_channel_is_tech* : Thème Technologie
+*data_channel_is_world* : Thème Monde
+
+Mesures de subjectivité et polarité de l'article :
+
+*global_subjectivity* : Subjectivité Globale
+*global_sentiment_polarity* : Polarité Globale
+*global_rate_positive_words* : Taux de mots positifs global
+*global_rate_negative_words* : Taux de mots négatifs global
+*rate_positive_words* : Taux de mots positifs parmi les mots polarisés
+*rate_negative_words* : Taux de mots négatifs parmi les mots polarisés
+*avg_positive_polarity* : Polarité positive moyenne
+*min_positive_polarity* : Polarité positive minimale
+*max_positive_polarity* : Polarité positive maximale
+*avg_negative_polarity* : Polarité négative moyenne
+*min_negative_polarity* : Polarité négative minimale
+*max_negative_polarity* : Polarité négative maximale
+
+Mesures de subjectivité et polarité du titre :
+
+*title_subjectivity* : Subjectivité du titre
+*title_sentiment_polarity* : Polarité du titre
+*abs_title_subjectivity* : Niveau absolu de subjectivité
+*abs_title_sentiment_polarity* : Niveau absolu de polarité
+
+```{r Style_Subject_Variables, message=FALSE, echo=FALSE}
+print(style_subject_variables)
+```
+
+
+Commençons par le *sujet des articles* :
+
+```{r Distribution Content Category, message=FALSE, echo=FALSE }
+# Préparation des données pour les catégories de contenu
+categories_counts <- onp %>%
+  summarise(
+    Lifestyle = sum(data_channel_is_lifestyle),
+    Entertainment = sum(data_channel_is_entertainment),
+    Business = sum(data_channel_is_bus),
+    Social_Media = sum(data_channel_is_socmed),
+    Technology = sum(data_channel_is_tech),
+    World = sum(data_channel_is_world)
+  ) %>%
+  gather(key = "Category", value = "Count")
+
+
+library(ggplot2)
+
+library(tidyr)
+
+# Création du graphique
+ggplot(categories_counts, aes(x = Category, y = Count, fill = Category)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Number of Articles Published by Content Category", x = "Content Category", y = "Number of Articles") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+Le graphique illustre la répartition des articles publiés par catégorie de contenu sur Mashable. La catégorie 'World' dominent nettement, ce qui témoigne de l'intérêt et de la priorité accordés aux sujets d'actualité mondiale et aux avancées technologiques. La catégorie 'Business' suit, reflétant l'importance des informations économiques. Les catégories 'Entertainment' et 'Technologiy' présentent un nombre inférieur d'articles, ce qui pourrait indiquer une focalisation moins prononcée sur ces sujets ou une concurrence plus intense avec d'autres sources d'informations dans ces domaines. La catégorie 'Social Media' et la catégorie 'Lifestyle' affichent le moins d'articles, suggérant que bien que Mashable couvre ce sujet, il n'est peut-être pas aussi central dans leur stratégie de contenu que les sujets mondiaux par exemple.
+
+
+Visualisation des *mesures de subjectivité du contenu* :
+
+```{r Distribution MesuresSubjectivité, message=FALSE, echo=FALSE}
+if(!require(ggplot2)) install.packages("ggplot2")
+library(ggplot2)
+if(!require(gridExtra)) install.packages("gridExtra")
+library(gridExtra)
+
+# Variables de subjectivité et polarité du contenu
+content_vars <- onp[, c("global_subjectivity", "global_sentiment_polarity", "global_rate_positive_words",
+                        "global_rate_negative_words", "rate_positive_words", "rate_negative_words",
+                        "avg_positive_polarity", "min_positive_polarity", "max_positive_polarity",
+                        "avg_negative_polarity", "min_negative_polarity", "max_negative_polarity")]
+
+# Création des histogrammes pour chaque variable et stockage dans une liste
+p_list1 <- lapply(names(content_vars), function(var) {
+  ggplot(onp, aes_string(x = var)) +
+    geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+    labs(title = paste(var), x = var, y = "Frequency") +
+    theme_minimal()
+})
+
+# Affichage des histogrammes sur deux images
+grid.arrange(grobs = p_list1[1:6], ncol = 3)
+grid.arrange(grobs = p_list1[7:12], ncol = 3)
+
+```
+
+Ces distributions révèlent les nuances du style d'écriture des articles en termes de subjectivité et de polarité. La subjectivité globale, reflétée par une distribution centrée, suggère une tendance des articles à équilibrer les faits et opinions. La polarité globale, avec une distribution centrée proche de zéro, indique que les articles peuvent mélanger des éléments positifs et négatifs, potentiellement pour maintenir l'engagement du lecteur sans pencher excessivement vers des tonalités émotionnelles uniques. Les articles traitants de l'actualité, par exemple, vont voir leur polarité évoluer en fonction de la nouvelle rapportée, qui peut être bonne ou mauvaise.
+
+Les taux de mots positifs et négatifs illustrent la fréquence relative de ces termes, fournissant un aperçu de l'ambiance générale des articles. La polarité moyenne, tant positive que négative, ainsi que leurs valeurs minimales et maximales, donnent une indication de l'intensité des émotions véhiculées, avec des extrêmes pointant vers des passages particulièrement chargés émotionnellement. Ici on remarque des repartitions relativement similaires et centrées, indiquant que en moyenne les articles contiennnet à peu près autant de mots positifs que négatifs.
+
+Visualisation des *mesures de subjectivité du titre* :
+
+```{r Distribution Subjectivité du titre, message=FALSE, echo=FALSE}
+# Variables de subjectivité et polarité du titre
+title_vars <- onp[, c("title_subjectivity", "title_sentiment_polarity", "abs_title_subjectivity", "abs_title_sentiment_polarity")]
+
+# Création des histogrammes pour chaque variable et stockage dans une liste
+p_list2 <- lapply(names(title_vars), function(var) {
+  ggplot(onp, aes_string(x = var)) +
+    geom_histogram(bins = 30, fill = "lightgreen", color = "black") +
+    labs(title = paste("Distribution of", var), x = var, y = "Frequency") +
+    theme_minimal()
+})
+
+# Affichage des histogrammes sur une image
+grid.arrange(grobs = p_list2, ncol = 2)
+
+```
+
+Les titres des articles jouent un rôle significatif dans l'engagement du lecteur et leur décision de partager le contenu. L'analyse montre que la majorité des titres ont une faible subjectivité, indiquant une tendance à des titres plus factuels ou objectifs, peut-être dans le but d'attirer un public plus large en évitant les opinions polarisantes. Toutefois, la polarité des titres, bien que généralement faible, peut permettre de provoquer une émotion chez le lecteur, une stratégie connue pour augmenter le partage d'articles et qui est peut être utilisée ici pour les titres polarisés.
+
+La distribution de l'absolue subjectivité et polarité des titres confirme cette approche en montrant que les titres sont souvent écrits pour être soit nettement objectifs, soit légèrement chargés émotionnellement, évitant les extrêmes qui pourraient détourner certains lecteurs. 
+
+
+# III. Analyses bivariées et de corrélation des variables:
+
+Après avoir examiné individuellement chaque variable pour comprendre leur distribution et leurs caractéristiques intrinsèques, nous allons maintenant approfondir notre analyse en explorant les relations bivariées, en particulier en ce qui concerne notre variable cible, le nombre de partages (shares). Cette phase d'analyse bivariée et de corrélation nous permettra de déceler les interactions potentielles entre les variables et leur influence sur la popularité des articles. Nous chercherons à identifier les facteurs qui sont les plus étroitement liés au nombre de partages, ce qui fournira des aperçus essentiels pour la construction de modèles prédictifs. En examinant comment les variables interagissent deux à deux, nous pouvons commencer à construire une image plus nuancée de la dynamique sous-jacente qui favorise ou inhibe la viralité des articles en ligne.
+
+## A. Analyses bivariées entre dépendante et catégorielle:
+
+**Relation entre le nombre de partage et le jour de publication de l'article**
+
+```{r NbShares - Jour publication, message=FALSE, echo=FALSE}
+
+library(ggplot2)
+library(reshape2)
+onp_long <- melt(onp, id.vars = "shares", 
+                 measure.vars = c("weekday_is_monday", "weekday_is_tuesday", 
+                                  "weekday_is_wednesday", "weekday_is_thursday", 
+                                  "weekday_is_friday", "weekday_is_saturday", 
+                                  "weekday_is_sunday"))
+
+onp_long <- subset(onp_long, value == 1)
+
+ggplot(onp_long, aes(x = variable, y = shares)) + 
+  geom_boxplot() +
+  labs(x = "Day of the Week", y = "Number of Shares", title = "Boxplot of Shares by Day of the Week") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Ce boxplot révèle les différences dans la distribution du nombre de partages des articles en fonction des jours de la semaine. On observe que la médiane reste relativement constante, signalant une tendance similaire dans le nombre de partages, peu importe le jour. Cependant, le samedi semble se démarquer légèrement avec une médiane plus haute, ce qui pourrait indiquer que les lecteurs prennnet plus le temps de partager un article le weekend, quand ils ont le temps de lire.
+
+**Relation entre nombre de partage et le sujet de l'article**
+
+```{r NbShares - Sujet article, message=FALSE, echo=FALSE}
+library(ggplot2)
+library(reshape2)
+
+onp_long <- melt(onp, id.vars = "shares",
+                 measure.vars = c("data_channel_is_lifestyle", "data_channel_is_entertainment", 
+                                  "data_channel_is_bus", "data_channel_is_socmed", 
+                                  "data_channel_is_tech", "data_channel_is_world"))
+
+onp_long <- subset(onp_long, value == 1)
+
+levels(onp_long$variable) <- c("Lifestyle", "Entertainment", "Business", "Social Media", "Technology", "World")
+
+#boxplot
+ggplot(onp_long, aes(x = variable, y = shares)) + 
+  geom_boxplot() +
+  labs(x = "Content Category", y = "Number of Shares", title = "Boxplot of Shares by Content Category") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Ces boxplots nous donnent une idée sur la distribution de nombre de partages par sujet d'article, et on remarque que la médiane de tous les sujet est entre 1000 et 1500 partage , avec une tendance plus à la hausse pour les sujets des réseaux sociaux, de la technologie et Lifestyle. Cela est plus ou moins explicable par la jeunesse des lecteurs de Mashable qui a tendance a partagé plus facilement, surtout avec les réseaux sociaux. C'est une génération plus intéressé à ces derniers sujets et qui a le reflexe de partager plus souvent que les générations précédentes.
+
+## B. Analyses bivariées des variables explicatives continues
+
+**Relation entre nombre de partages et le nombre de mots dans un article**
+
+Dans le cadre de notre analyse bivariée des variables explicatives continues, nous avons examiné la relation entre le nombre de partages et le nombre de mots dans un article. L'objectif était de déterminer s'il existe une corrélation significative entre la longueur d'un article et sa popularité, mesurée en termes de partages.
+
+```{r NbShares - NbWords, message=FALSE, echo=FALSE}
+# Charger les bibliothèques nécessaires
+library(ggplot2)
+
+ggplot(onp, aes(x = n_tokens_content, y = shares)) +
+  geom_point(alpha = 0.5) +  
+  geom_smooth(method = "lm", color = "red", se = FALSE) + 
+  labs(x = "Nombre de mots dans le contenu", y = "Nombre de partages") +
+  ggtitle("Relation entre le Nombre de Mots et les Partages")
+
+# Calcul du coefficient de corrélation de Pearson
+cor.test(onp$n_tokens_content, onp$shares)
+
+
+```
+
+La corrélation de Pearson entre le nombre de mots dans le contenu (onp$n_tokens_content) et le nombre de partages (onp$shares) est de 0.0095, ce qui suggère une association très faible entre ces deux variables. En effet, la valeur de p est de 0.5, bien au-dessus du seuil habituel de 0.05, indiquant que cette faible corrélation n'est pas statistiquement significative. De plus, l'intervalle de confiance à 95% pour cette corrélation s'étend de -0.017 à 0.036, incluant zéro, ce qui renforce l'idée que le nombre de mots dans un article n'est pas un prédicteur fiable du nombre de partages.
+
+Ces résultats nous amènent à conclure que la quantité de texte dans un article de Mashable ne semble pas influencer la fréquence à laquelle l'article est partagé. 
+
+**Relation entre nombre de partages et le nombre d'images dans un article**
+
+```{r NbShares - NbImages, message=FALSE, echo=FALSE}
+library(ggplot2)
+
+ggplot(onp, aes(x = num_imgs, y = shares)) +
+  geom_point(alpha = 0.5) +  
+  geom_smooth(method = "lm", color = "blue", se = FALSE) +  
+  labs(x = "Nombre d'images dans l'article", y = "Nombre de partages") +
+  ggtitle("Relation entre le Nombre d'Images et les Partages")
+
+cor.test(onp$num_imgs, onp$shares)
+```
+L'analyse de corrélation de Pearson indique une corrélation positive légère mais significative (cor = 0.079) entre ces deux variables, avec une valeur p proche de zéro (p = 6e-09), ce qui suggère que cette association n'est pas due au hasard.
+
+La présence d'images dans les articles semble avoir un effet modeste sur la probabilité d'être partagés, ce qui pourrait être interprété comme un élément d'attraction visuelle pour les lecteurs. Néanmoins, la force de cette relation reste faible, comme le montre la plage de l'intervalle de confiance à 95% (0.052 à 0.105), ce qui implique que d'autres facteurs pourraient également jouer un rôle important dans la popularité des articles sur les réseaux sociaux.
+
+Le graphique adjacent offre une visualisation claire de la dispersion des données, où l'on observe une légère tendance ascendante, soulignée par la ligne de tendance bleue, à mesure que le nombre d'images augmente.
+
+**Relation entre nombre de partages et les variables de subjectivité des articles**
+
+```{r NbShares - Subjectivité des articles, message=FALSE, echo=FALSE}
+library(ggplot2)
+library(gridExtra)
+
+# Définition des variables pour les graphiques
+variables <- c("global_subjectivity", "global_sentiment_polarity", "global_rate_positive_words",
+               "global_rate_negative_words", "rate_positive_words", "rate_negative_words",
+               "avg_positive_polarity", "min_positive_polarity", "max_positive_polarity",
+               "avg_negative_polarity", "min_negative_polarity", "max_negative_polarity")
+
+# Création d'une liste de graphiques
+plots <- lapply(variables, function(var) {
+  ggplot(onp, aes_string(x = var, y = "shares")) +
+    geom_point(alpha = 0.5) +
+    geom_smooth(method = "lm", color = "red", se = FALSE) +
+    labs(x = var, y = "Nombre de partages") +
+    ggtitle(paste(var, "- shares"))
+})
+
+
+
+grid.arrange(grobs = plots[1:4], ncol = 2)
+grid.arrange(grobs = plots[5:8], ncol = 2)
+grid.arrange(grobs = plots[9:12], ncol = 2)
+
+```
+
+
+
+```{r CoeffCorr NbShares - Subjectivité, message=FALSE, echo=FALSE}
+# Calcul des coefficients de corrélation de Pearson
+correlations <- cor(onp[c("shares", "global_subjectivity", "global_sentiment_polarity",
+                          "global_rate_positive_words", "global_rate_negative_words", 
+                          "rate_positive_words", "rate_negative_words", 
+                          "avg_positive_polarity", "min_positive_polarity", 
+                          "max_positive_polarity", "avg_negative_polarity", 
+                          "min_negative_polarity", "max_negative_polarity")])
+
+shares_correlations <- correlations["shares", -1]  
+print(shares_correlations)
+```
+L’analyse des relations entre le nombre de partages et les mesures de subjectivité et de polarité des articles révèle des tendances intéressantes. La subjectivité globale semble avoir une dispersion équilibrée de partages, sans une corrélation forte apparente, suggérant que le degré de subjectivité n'influence pas de manière significative la viralité. La polarité sentimentale, qu'elle soit positive ou négative, présente également une distribution uniforme des partages, ce qui indique que l'émotion véhiculée dans le contenu de l'article ne prédétermine pas son succès en termes de partages. Des taux élevés de mots positifs ou négatifs ne garantissent pas non plus une plus grande popularité. Enfin, les valeurs extrêmes de polarité, aussi bien positives que négatives, ne montrent pas de lien direct avec une augmentation des partages. Ces observations suggèrent que les aspects émotionnels et subjectifs des articles, bien qu’importants pour l'engagement des lecteurs, ne sont pas des prédicteurs déterminants de la propagation sur les réseaux sociaux.
+
+## C. Analyses de la corrélation
+
+Pour procéder à l'analyse de la correlation, on opte pour un corrplot, mais vu le grand nombre des variables, on s'intéresse aux variables les plus corrélées qui peuvent biaiser notre modèle.
+
+```{r LoadLibrary, message=FALSE, echo=FALSE}
+library(corrplot)
+library(jtools)
+```
+
+
+```{r Corrplot, message=FALSE, echo=FALSE}
+library(corrplot)
+
+continuous_vars <- sapply(onp, function(x) is.numeric(x) && length(unique(x)) > 4)
+
+cor_matrix <- cor(onp[, continuous_vars, drop = FALSE])
+
+corrplot(cor_matrix, method = "color", 
+         type = "upper",       
+         order = "hclust",      
+         tl.cex = 0.25,          
+         cl.cex = 0.5,          
+         tl.col = "black",      
+         tl.srt = 45)           
+```
+
+La multicollinéarité dans les modèles de régression se réfère à une situation où deux ou plusieurs variables prédictives dans un modèle sont fortement corrélées, ce qui rend difficile l'estimation des relations entre chaque variable prédictive et la variable cible. 
+
+Une corrélation supérieure à **0.7** : Un seuil souvent cité est une corrélation de 0.7 entre deux variables indépendantes. Si la corrélation entre deux variables dépasse ce seuil, cela peut indiquer une forte collinéarité qui pourrait influencer négativement le modèle.
+
+Pour ce cas on essaie à partir du 1er graphique de correlation d'extraire les variables dont la correlation est supérieure à 0.7 pour diminuer le risque de la multicolinéarité. Il s'agit ici de les réperer afin de pouvoir les exclure plus tard. 
+
+```{r RankingCorrelation, message=FALSE, echo=FALSE}
+# Trouver les paires de variables avec une corrélation (absolue) très élévé
+high_cor_pairs <- which(abs(cor_matrix) > 0.7 & upper.tri(cor_matrix), arr.ind = TRUE)
+
+
+high_cor_vars <- apply(high_cor_pairs, 1, function(idx) {
+    row_name <- rownames(cor_matrix)[idx[1]]
+    col_name <- colnames(cor_matrix)[idx[2]]
+    return(paste(row_name, col_name, sep=" - "))
+})
+
+
+for (pair in high_cor_vars) {
+    row_col_names <- unlist(strsplit(pair, " - "))
+    cor_value <- cor_matrix[row_col_names[1], row_col_names[2]]
+    cat(pair, ": ", cor_value, "\n")
+}
+
+```
+
+## D. Le facteur d’inflation de la variance - VIF
+
+Le facteur d’inflation de la variance (VIF) est un outil servant à évaluer la force de la corrélation entre les variables indépendantes dans un modèle de régression multiple. Il quantifie à quel point la variance d'un estimateur de régression est augmentée en raison de la multicollinéarité. Un VIF élevé indique qu'une variable indépendante est fortement linéairement corrélée avec une ou plusieurs autres variables indépendantes, ce qui peut affecter la fiabilité des coefficients estimés et affaiblir l'interprétabilité du modèle.
+
+Pour notre projet, la compréhension et la réduction de la multicollinéarité à travers le VIF sont essentielles car elles nous permettent de construire des modèles de prédiction plus stables et fiables. Des valeurs de VIF élevées dans notre modèle pourraient suggérer que nous devons repenser notre sélection de variables ou utiliser des méthodes de régularisation telles que la régression Ridge ou Lasso, qui peuvent aider à atténuer l'impact de la multicollinéarité.
+
+L'objectif sera donc de veiller à ce que les VIFs de toutes les variables dans notre modèle final soient en dessous du seuil critique de 10, ce qui indique une absence de problèmes sérieux de multicollinéarité. Cela renforcera la confiance dans nos prédictions de la popularité des articles en ligne, telles que mesurées par le nombre de partages (shares), et dans les recommandations stratégiques dérivées de notre analyse.
+
+```{r VIF, message=FALSE, echo=FALSE}
+library(car)
+library(caTools)
+library(dplyr)
+library(jtools)
+
+
+
+onpc <- onp[, sapply(onp, function(x) is.numeric(x) && length(unique(x)) > 3)]
+onpc <- subset(onp, select = -c(LDA_00, LDA_01, LDA_02, LDA_03, LDA_04, n_non_stop_words, rate_negative_words, url, is_weekend, kw_max_max, weekday_is_sunday, data_channel_is_world))
+
+
+reglin <- lm(shares ~ ., data = onpc)  
+
+
+summ(reglin, vifs = TRUE)
+
+```
+
+Dans le cadre de l'élaboration d'un modèle de prédiction efficace, il est crucial d'épurer notre ensemble de données des variables redondantes ou inutiles. Pour ce faire, nous avons d'abord identifié les variables présentant un facteur d'inflation de la variance (VIF) supérieur à 10, ce qui suggère une multicollinéarité problématique. Les variables suivantes sont donc exclues de notre modèles.
+
+*n_unique_tokens*
+*self_reference_min_shares*
+*self_reference_max_shares*
+*self_reference_avg_shares*
+*rate_positive_words*
+
+De plus, une analyse de corrélation a mis en évidence des paires de variables fortement corrélées. Afin d'éviter la redondance d'informations et de réduire le risque de surajustement, nous avons opté pour l'élimination d'une variable dans chaque paire corrélée. Les variables suivantes ont été retirées pour cette raison.
+
+*n_unique_tokens*
+*n_non_stop_words*
+*kw_max_min*
+*kw_avg_min*
+*self_reference_min_shares*
+*self_reference_max_shares*
+*global_sentiment_polarity*
+*rate_positive_words*
+*abs_title_subjectivity* 
+
+```{r newVIF, message=FALSE, echo=FALSE}
+onpc <- onp[, sapply(onp, function(x) is.numeric(x) )]
+onpc <- subset(onp, select = -c(LDA_00, LDA_01, LDA_02, LDA_03, LDA_04, n_non_stop_words, rate_negative_words, url, is_weekend, kw_max_max, weekday_is_sunday, data_channel_is_world, n_unique_tokens, self_reference_min_shares, self_reference_max_shares, self_reference_avg_sharess, rate_positive_words, abs_title_subjectivity))
+
+reglin <- lm(shares ~ ., data = onpc)  
+
+
+summ(reglin, vifs = TRUE)
+
+```
+Suite à cela on se retrouve avec une regression avec un VIF<10, et une non colinéarité entre les variables pour optimiser notre modèle de prédiction et éviter le surapprentissage.
+
+## E. Etude de la non linéarité:
+
+Pour étudier la non linéarité, on dessine un graphique de correlation pour la variable shares, et on essaie de visualiser la courbe de correlation.
+
+```{r Non Linéarité, message=FALSE, echo=FALSE}
+
+theme1 <- trellis.par.get()
+theme1$plot.symbol$pch = 16
+theme1$plot.line$col = rgb(1, 0, 0, .7)
+theme1$plot.line$lwd <- 2
+trellis.par.set(theme1)
+variables <- c( "shares", "n_tokens_title", "n_tokens_content", "n_non_stop_unique_tokens", "num_hrefs", "num_self_hrefs", "num_imgs", "num_videos", "average_token_length", "num_keywords",  "kw_min_min", "kw_max_min", "kw_avg_min", "kw_min_max", "kw_avg_max", "kw_min_avg", "kw_max_avg", "kw_avg_avg", "global_subjectivity", "global_sentiment_polarity", "global_rate_positive_words", "global_rate_negative_words", "avg_positive_polarity", "min_positive_polarity", "max_positive_polarity", "avg_negative_polarity", "min_negative_polarity", "max_negative_polarity", "title_subjectivity", "title_sentiment_polarity", "abs_title_sentiment_polarity")
+expl_continuous <- variables[- which(variables == "shares")]
+# featurePlot is a caret command
+featurePlot(x = onp[, variables],  y = onp$shares, 
+    plot = "scatter", type = c("p", "smooth"),  span = 1, 
+    labels = c("","shares"), layout = c(3, 2))
+```
+D'après les résultats, on ne se retrouve pas avec une variable non linéaire mis à part kw_min_avg. 
+Par soucis de rigueur on pourra prendre en compte d'autres variable pour la méthode spline, mais cela reste négligeable.
+
+```{r Regression 1, message=FALSE, echo=TRUE}
+reg1 <- lm(shares ~ bs(kw_min_avg, df = 3), data = onpc)
+effect_plot(reg1, data = onpc, pred = kw_min_avg, 
+            interval = TRUE, robust = "HC1",
+            colors = "blue", line.thickness = 1,
+            plot.points = TRUE, pch = ".",
+            point.size = 1)
+```
+
+Pour la relation non linéaire entre *shares* et *kw_min_avg*,l'utilisation d'une spline de degré 3 semble être pertinente. En réalité, cela revient à modéliser la relation par un polynome du troisième degrés. 
+
+Ainsi,
+
+- L'exploration des données nous a amené à déceler des relations non linéaires entre la variable dépendante et les variables explicatives.
+
+- Certaines des variables explicatives étaient très corrélées entre elles. Cela était source de colinéarité. Nous avons donc supprimé les variables en question.
+
+- Parmi l'ensemble des variables explicatives conservées, une seule sera introduite à l'aide d'une relation non linéaire. 
+
+Après cette analyse, nous obtenons la base de donnée suivante.
+
+```{r CleandBDD, message=FALSE, echo=FALSE}
+library(dplyr)
+
+onp1 <- subset(onp, select = -c(url, LDA_00, LDA_01, LDA_02, LDA_03, LDA_04, n_non_stop_words, rate_negative_words, is_weekend, kw_max_max, n_unique_tokens, self_reference_min_shares, self_reference_max_shares, self_reference_avg_sharess, rate_positive_words, abs_title_subjectivity))
+
+
+head(onp1)
+```
+
+# IV. Des modèles prédictifs pour le nombre de partage des articles
+
+L'objectif de notre étude est de développer des modèles prédictifs pour estimer le nombre de partages des articles, un indicateur clé de leur popularité en ligne. Nous employons une gamme de techniques avancées, incluant les arbres de régression, les forêts aléatoires, les modèles additifs généralisés (GAM) et le boosting, choisies pour leur efficacité à capturer la complexité des données. Notre méthodologie vise à équilibrer la précision prédictive avec l'interprétabilité, permettant ainsi d'identifier les facteurs déterminants de la viralité des contenus. 
+L'objectif sera de voir quelle sont les caractéristiques de l'article qui influencent le nombre de partages.
+
+
+## A. Arbres regressionnels:
+
+L'arbre de décision régressif constitue une méthode fondamentale dans l'arsenal des modèles prédictifs, offrant une approche visuelle et intuitive pour la compréhension des relations complexes entre variables. Ce modèle construit une structure arborescente où chaque nœud représente une décision basée sur une variable explicative, et chaque feuille correspond à une valeur prédictive du nombre de partages. Son principal avantage réside dans sa simplicité d'interprétation, permettant même aux non-statisticiens de saisir facilement les critères de décision.
+
+Le processus de "pruning" (élagage) des arbres est crucial pour éviter le surapprentissage, en réduisant la complexité de l'arbre pour améliorer sa généralisation sur de nouvelles données. Cette étape optimise l'équilibre entre biais et variance, contribuant à la robustesse du modèle.
+
+L'extension vers les "bagged trees" (arbres en sac) amplifie cette robustesse en combinant les prédictions de multiples arbres construits sur des sous-ensembles du jeu de données, réduisant la variance sans augmenter le biais. Cette méthode de forêt aléatoire offre une amélioration significative de la précision prédictive par rapport à un seul arbre de décision.
+
+L'analyse des résultats et la comparaison de ces différentes approches permettront d'identifier la méthode la plus efficace pour prédire le nombre de partages des articles, en évaluant leur performance à travers des métriques telles que l'erreur quadratique moyenne (RMSE). Cette étape est essentielle pour sélectionner le modèle offrant le meilleur compromis entre précision prédictive et complexité, afin d'optimiser la stratégie de contenu pour maximiser l'engagement et la portée des articles publiés.
+
+
+### A.1. Arbre de décision regressionnel:
+
+L'arbre de décision régressif est un outil puissant pour la modélisation prédictive, particulièrement apprécié pour sa capacité à modéliser des relations non-linéaires et complexes entre les variables explicatives et la variable cible. En divisant l'espace des variables en régions homogènes, cet arbre permet d'identifier les facteurs clés influençant le nombre de partages d'un article. Grâce à sa structure intuitive, qui imite le processus décisionnel humain, il facilite grandement l'interprétation des résultats. Cela en fait un choix stratégique pour débuter l'analyse prédictive dans notre quête de comprendre et d'optimiser les partages d'articles en ligne, offrant une base solide pour explorer des modèles plus complexes.
+Sur ce modèle on utilise la validation croisée avec un echantillon test de 0.3.
+
+```{r TreeModel, message=FALSE}
+library(tree)
+
+# Création de la formule avec les variables spécifiées
+formula <- as.formula(paste("log(shares) ~", paste(c("timedelta", "n_tokens_title", "n_tokens_content", "n_non_stop_unique_tokens", "num_hrefs", "num_self_hrefs", "num_imgs", "num_videos", "average_token_length", "num_keywords", "data_channel_is_lifestyle", "data_channel_is_entertainment", "data_channel_is_bus", "data_channel_is_socmed", "data_channel_is_tech", "kw_min_min", "kw_max_min", "kw_avg_min", "kw_min_max", "kw_avg_max", "kw_min_avg", "kw_max_avg", "kw_avg_avg", "weekday_is_monday", "weekday_is_tuesday", "weekday_is_wednesday", "weekday_is_thursday", "weekday_is_friday", "weekday_is_saturday", "global_subjectivity", "global_sentiment_polarity", "global_rate_positive_words", "global_rate_negative_words", "avg_positive_polarity", "min_positive_polarity", "max_positive_polarity", "avg_negative_polarity", "min_negative_polarity", "max_negative_polarity", "title_subjectivity", "title_sentiment_polarity", "abs_title_sentiment_polarity"), collapse = " + ")))
+
+tree_model <- tree(formula, data = onp1, mindev = 0.3)
+
+summary(tree_model)
+
+
+```
+Sur ce premier modèle on se retrouve avec un seul noeud, ce qui n'est pas du tout logique pour un modele de prédiction.
+
+C'est pour cela qu'on s'interesse à un modele de prunning où on essaie de retouver un nombre de noeud optimal.
+
+### A.2 Prunning
+
+```{r PrunningModel, message=FALSE}
+library(caret)
+library(doParallel)
+library(rpart)
+
+# Définir le nombre de cœurs à utiliser
+nrcore <- detectCores() - 1
+cl <- makeCluster(nrcore)
+registerDoParallel(cl)
+
+bootTunes <- 5 
+bootControl <- trainControl(method = "boot", 
+                            number = 50, 
+                            savePredictions = TRUE,
+                            seeds = NULL) 
+
+cp_values <- seq(from = 0.01, to = 0.1, length.out = bootTunes) 
+# Ajuster le modèle
+set.seed(123) # Fixer une graine pour la reproductibilité
+btree <- train(formula, data = onp1,  method = "rpart",
+               trControl = bootControl, 
+               tuneGrid = expand.grid(cp = cp_values)) 
+# Arrêter le cluster parallèle
+stopCluster(cl)
+registerDoSEQ()
+
+# Afficher le résumé du modèle
+print(btree)
+
+
+```
+
+Les résultats obtenus à partir de la procédure de prunning avec différentes valeurs de complexité de paramètre (*cp*) montre que le modèle avec le *cp* = 0.01 offre les performances optimales en termes de RMSE (Root Mean Squared Error), avec une valeur de 0.4946062. Cela indique que ce niveau de complexité permet d'obtenir le meilleur équilibre entre ajustement du modèle et généralisation aux données non vues, en minimisant l'erreur de prédiction.
+
+Les valeurs de RMSE augmentent avec les valeurs *cp* plus élevées, ce qui suggère qu'une complexité réduite du modèle (plus grand élagage de l'arbre) entraîne une détérioration de la précision des prédictions. Les valeurs de Rsquared sont disponibles uniquement pour les modèles avec les valeurs *cp* les plus faibles, indiquant une certaine capacité du modèle à expliquer la variabilité des données, bien que cette capacité diminue avec l'augmentation de *cp*.
+
+L'absence de valeurs Rsquared pour les valeurs plus élevées de *cp* indique également que ces modèles sont potentiellement trop simplifiés pour capturer les relations significatives entre les variables explicatives et la variable dépendante. En conséquence, le modèle choisi avec *cp* = 0.01 semble offrir un compromis optimal entre la complexité du modèle et sa capacité à prédire avec précision le nombre de partages des articles, en se basant sur le critère de sélection du RMSE le plus faible.
+
+```{r BTree, message=FALSE}
+library(caret)
+library(rpart)
+library(doParallel)
+
+nrcore <- detectCores() - 1
+cl <- makeCluster(nrcore)
+registerDoParallel(cl)
+
+
+bootControl <- trainControl(method = "boot", 
+                            number = 50, 
+                            savePredictions = TRUE,
+                            p = 0.7) 
+set.seed(123) 
+btree <- train(formula, data = onp1,  method = "rpart",
+               trControl = bootControl, 
+               tuneGrid = expand.grid(cp = 0.01)) 
+
+stopCluster(cl)
+registerDoSEQ()
+
+# Afficher l'arbre final
+plot(btree$finalModel)
+text(btree$finalModel)
+
+```
+L'arbre de décision pour *cp* = 0.01 révèle plusieurs divisions intéressantes basées sur les caractéristiques des articles pour prédire le nombre de partages. Premièrement, la variable timedelta semble être un prédicteur significatif, avec des seuils à 502.5 et 532.5 jours, suggérant que l'ancienneté de l'article influence le nombre de partages. Les articles plus récents sont plus partagés, avec des scores prédits supérieurs sur les feuilles de droite. Les articles publiés le samedi ont tendance à être moins partagés, et il y a une distinction claire entre les contenus de divertissement et technologiques, chacun influençant différemment le nombre de partages. En somme, ces résultats montrent l'importance de la temporalité et du type de contenu sur la popularité des articles.
+
+### A.3.Complexity pruning
+
+L'utilsation du modèle d'arbre de décision avec la complexity pruning nous permet d'avoir le nombre d'arbre optimal et le *cp* optimal pour notre modèle.
+
+```{r CPTree, message=FALSE}
+library(caret)
+library(doParallel)
+library(rpart)
+
+nrcore <- 8 
+cl <- makeCluster(nrcore)
+registerDoParallel(cl)
+
+bootTunes <- 11 
+method <- "boot" 
+numbers <- 50
+
+bootControl <- trainControl(method = method, 
+                            number = numbers,
+                            savePredictions = "final",
+                            p = 0.3) 
+
+# Grille de valeurs pour cp (paramètre de complexité)
+alpha <- 10^seq(from = -1.5, to = -3, length.out = bootTunes)
+
+
+set.seed(123) 
+cptree <- train(log(shares) ~ timedelta + n_tokens_title + n_tokens_content + n_non_stop_unique_tokens + num_hrefs + num_self_hrefs + num_imgs + num_videos + average_token_length + num_keywords + data_channel_is_lifestyle + data_channel_is_entertainment + data_channel_is_bus + data_channel_is_socmed + data_channel_is_tech + kw_min_min + kw_max_min + kw_avg_min + kw_min_max + kw_avg_max + kw_min_avg + kw_max_avg + kw_avg_avg + weekday_is_monday + weekday_is_tuesday + weekday_is_wednesday + weekday_is_thursday + weekday_is_friday + weekday_is_saturday + global_subjectivity + global_sentiment_polarity + global_rate_positive_words + global_rate_negative_words + avg_positive_polarity + min_positive_polarity + max_positive_polarity + avg_negative_polarity + min_negative_polarity + max_negative_polarity + title_subjectivity + title_sentiment_polarity + abs_title_sentiment_polarity, 
+               data = onp1,  
+               method = "rpart", 
+               trControl = bootControl, 
+               tuneGrid = expand.grid(cp = alpha))
+
+# Arrêter le cluster parallèle
+stopCluster(cl)
+registerDoSEQ()
+
+# Afficher le graphique du modèle pour visualiser les performances à différents niveaux de cp
+plot(cptree)
+
+```
+```{r CPTree BestTune, message=FALSE, echo=FALSE}
+cptree$bestTune
+```
+Le graphique montre la relation entre le paramètre de complexité et l'erreur quadratique moyenne (RMSE) pour la prédiction du nombre de partages des articles. On observe une décroissance rapide du RMSE lorsque le paramètre de complexité augmente jusqu'à atteindre environ 0.01, après quoi l'erreur se stabilise. Cette tendance suggère qu'un paramètre de complexité d'environ 0.01 minimise le RMSE sans surajuster le modèle, justifiant ainsi le choix de ce *cp* pour la taille optimale de l'arbre. Les modèles avec un *cp* supérieur ne montrent pas d'amélioration significative du RMSE, indiquant que des modèles plus complexes n'augmentent pas nécessairement la précision des prédictions et pourraient même conduire à une complexité inutile.
+
+```{r CPTree Final Model, message=FALSE, echo=FALSE}
+plot(cptree$finalModel)
+text(cptree$finalModel)
+```
+Finalement on se retrouve avec un modèle optimal de 7 arbres avec presques les mêmes variables importantes .
+
+
+**Importance des variables**
+
+L’importance des variables dans un modèle prédictif est une mesure statistique permettant d’évaluer l’influence de chaque variable indépendante sur la variable cible. Elle permet de distinguer les variables ayant un impact significatif de celles qui contribuent peu à la capacité prédictive du modèle. Cette connaissance oriente l’optimisation du modèle en identifiant les facteurs clés à intégrer, et aide à comprendre les relations sous-jacentes dans les données, facilitant ainsi les décisions basées sur le modèle.
+
+
+```{r PlotVarImpCPTree, message=FALSE, echo=FALSE}
+plot(varImp(cptree))
+```
+
+```{r VarImportance, message=FALSE}
+varImportance <- varImp(cptree, scale = FALSE)$importance
+
+varImportanceDF <- data.frame(Importance = varImportance[, 1], row.names = NULL)
+varImportanceDF$Variable <- rownames(varImportance)
+
+# Trier par importance décroissante
+varImportanceDF <- varImportanceDF[order(-varImportanceDF$Importance), ]
+
+# Sélectionner les 17 variables les plus importantes
+top17Variables <- head(varImportanceDF, 17)
+
+# Afficher les noms et l'importance
+print(top17Variables)
+```
+
+Les résultats d'importance des variables mettent en évidence les facteurs les plus influents dans la prédiction du nombre de partages d'un article. En tête de liste, *max_negative_polarity* et *timedelta* se détachent comme ayant la plus grande importance, suggérant une influence notable de la tonalité négative du contenu et de l'âge de l'article sur le partage. D'autres variables telles que *n_tokens_content*, indiquant la longueur de l'article, et *average_token_length*, reflétant la complexité du langage, jouent également des rôles significatifs. La subjectivité globale, le nombre de liens, et la présence sur les réseaux sociaux figurent parmi les attributs prédictifs clés, offrant des insights précieux pour l'optimisation du contenu en vue de maximiser le partage.
+
+### A.4 Bagged Trees:
+
+Les modèles bagged trees (arbres agrégés) sont une évolution des arbres de décision individuels qui améliorent leur précision et robustesse. Le bagging consiste à créer plusieurs arbres de décision sur des échantillons aléatoires du jeu de données (avec remise), puis à agréger leurs prédictions. Cette technique réduit la variance des prédictions, limitant ainsi le surajustement typique des arbres de décision individuels, sans augmenter significativement le biais.
+
+Dans le contexte de la prédiction du nombre de partages d'articles, l'utilisation de bagged trees est pertinente car elle permet d'exploiter les avantages des arbres de décision, tels que la facilité d'interprétation et la gestion des interactions non linéaires, tout en améliorant la stabilité et la précision du modèle. Cette méthode est particulièrement importante lorsqu'on a un grand nombre de variables explicatives et qu'on cherche à éviter le risque de surajustement tout en maintenant une bonne capacité prédictive.
+
+Dans ce modèle on va utiliser seulement les variables importantes dans qu'on a retrouvé dans le modèle d'arbre de décision.
+
+```{r BaggedTree, message=FALSE, echo=FALSE}
+
+formula2 <- as.formula(paste("log(shares) ~", paste(c("max_negative_polarity", "timedelta", "n_tokens_content",
+                   "average_token_length", "global_subjectivity", "num_hrefs",
+                   "num_self_hrefs", "kw_avg_avg", "data_channel_is_tech",
+                   "global_rate_positive_words", "weekday_is_saturday",
+                   "data_channel_is_entertainment", "kw_max_avg",
+                   "data_channel_is_socmed", "min_positive_polarity",
+                   "kw_avg_min", "kw_avg_max"), collapse = " + ")))
+
+
+```
+
+
+```{r BaggedTreeModel, message=FALSE}
+library(caret)
+library(dplyr)
+
+
+index_train <- createDataPartition(log(onp1$shares), p = 0.3, list = FALSE)
+data_train <- onp1[index_train, ]
+data_test <- onp1[-index_train, ]
+
+set.seed(123)
+control <- trainControl(method = "cv", number = 10)
+model_bagged_tree <- train(formula2, data = data_train,
+                           method = "treebag",
+                           trControl = control)
+
+# Résumé du modèle
+print(model_bagged_tree)
+
+plot(varImp(model_bagged_tree))
+
+# Prédiction sur l'ensemble de test
+predictions <- predict(model_bagged_tree, newdata = data_test)
+
+# Évaluation des performances du modèle
+postResample(pred = predictions, obs = log(data_test$shares))
+
+```
+```{r RMSEResults, message=FALSE, echo=FALSE}
+rmse_results <- model_bagged_tree$resample$RMSE
+```
+
+
+L'analyse par arbres de régression en sac (Bagged CART) sur un échantillon de 1637 observations avec 17 prédicteurs a été effectuée sans prétraitement des données. La validation croisée à 10 plis a révélé une erreur quadratique moyenne (RMSE) de 0.477, un R² de 0.08 et une erreur absolue moyenne (MAE) de 0.358. Ces indicateurs suggèrent que le modèle a une précision modeste dans la prédiction des partages, avec un faible niveau d'explication de la variance de la variable cible par les prédicteurs utilisés.
+
+
+## B. Foret aléatoire:
+
+On s'interesse maintenant à une autre modèle de régression.
+
+Le modèle Random Forest est une extension de l'arbre de décision qui optimise la précision prédictive et contrôle le surajustement par l'agrégation de multiples arbres. Chaque arbre est construit à partir d'un échantillon bootstrap du jeu de données et lors de la formation de chaque nœud, un sous-ensemble aléatoire de variables est considéré, ce qui augmente la diversité des arbres et réduit la corrélation entre eux. Ce modèle est particulièrement efficace pour gérer les ensembles de données avec un grand nombre de variables et peut capturer des interactions complexes entre les variables sans nécessiter de transformation ou de sélection manuelle. Sa facilité d'interprétation grâce à l'importance des variables et son efficacité dans les prédictions hors échantillon en font un choix robuste pour prédire le nombre de partages des articles.
+
+
+```{r OOB, message=FALSE, echo=FALSE}
+library(randomForest)
+library(doParallel)
+
+data_rf <- onp1
+
+nrcore <- detectCores() - 1
+cl <- makeCluster(nrcore)
+registerDoParallel(cl)
+
+set.seed(123)
+
+
+data_rf$shares <- log(data_rf$shares + 1)
+
+
+ntree_range <- seq(50, 500, by = 50)
+
+oob_error <- numeric(length(ntree_range))
+names(oob_error) <- ntree_range
+
+for(ntrees in ntree_range) {
+  rf_model <- randomForest(formula, data = data_rf, 
+                           mtry = 3, 
+                           ntree = ntrees, 
+                           importance = TRUE)
+  oob_error[as.character(ntrees)] <- rf_model$mse[ntrees]
+}
+
+# Visualiser l'erreur OOB en fonction du nombre d'arbres
+plot(ntree_range, oob_error, type = "b", 
+     xlab = "Nombre d'arbres", ylab = "Erreur OOB",
+     main = "Erreur OOB en fonction du nombre d'arbres")
+
+stopCluster(cl)
+registerDoSEQ()
+
+```
+Le graphique montre l'erreur out-of-bag (OOB) en fonction du nombre d'arbres dans un modèle de forêt aléatoire. On observe une décroissance rapide de l'erreur avec l'augmentation du nombre d'arbres jusqu'à environ 300, puis la tendance se stabilise, indiquant peu ou pas d'amélioration avec l'ajout de plus d'arbres. Cela suggère qu'un modèle comprenant environ 300 arbres pourrait être suffisant pour minimiser l'erreur sans imposer de coût de calcul supplémentaire inutile.
+
+```{r RandomForest, message=FALSE}
+library(caret)
+library(randomForest)
+
+# Définir le nombre de cœurs à utiliser
+nrcore <- detectCores() 
+cl <- makeCluster(nrcore)
+registerDoParallel(cl)
+
+set.seed(123)
+data_rf <- onp
+data_rf$shares <- log(data_rf$shares + 1) # Log-transform de la variable cible
+
+# Créer un index d'entraînement avec 30% des données
+index_train <- createDataPartition(data_rf$shares, p = 0.3, list = FALSE)
+train_set <- data_rf[index_train, ]
+test_set <- data_rf[-index_train, ]
+
+# Configurer le contrôle de l'entraînement , numberà 100 iteration/ 50 pour moins de temps de run
+control <- trainControl(method = "boot", number = 100, savePredictions = TRUE)
+
+# Ajuster le modèle de forêt aléatoire
+
+rf_model <- train(formula, data = train_set, method = "rf",
+                  trControl = control, tuneLength = 5) 
+print(rf_model)
+
+# Arrêter le cluster parallèle pour libérer les ressources
+stopCluster(cl)
+registerDoSEQ()
+
+
+```
+
+Dans notre quête pour modéliser précisément le nombre de partages d'articles, l'utilisation de la forêt aléatoire (Random Forest) a démontré une capacité remarquable à synthétiser les interactions complexes entre les variables prédictives. Lors de l'ajustement du modèle, un nombre restreint de prédicteurs par arbre (mtry = 2) a été privilégié, ce qui a permis d'atteindre le niveau de RMSE le plus bas de notre série de tests, s'établissant à 0.0727. Cette approche a non seulement favorisé la simplicité et la généralité du modèle mais a aussi entravé efficacement le phénomène de surajustement souvent observé avec des méthodes plus flexibles. Bien que le pourcentage de variance expliquée par le modèle soit relativement modeste, le faible R-squared ne contre indique pas le fait que le modèle est parvenu à capturer de manière adéquate la structure sous-jacente de nos données.
+
+En complément, l'erreur absolue moyenne (MAE) reste contenue, suggérant que les prédictions du modèle sont proches des valeurs réelles et que les erreurs ne sont pas disproportionnées. Le modèle de forêt aléatoire a su bénéficier de sa nature intrinsèque d'ensemble pour réduire l'erreur de prédiction et augmenter la stabilité du modèle. Les résidus, distribués de manière cohérente autour de zéro, attestent d'une absence de biais systématique dans les prévisions du modèle. Ainsi, notre modèle de forêt aléatoire, grâce à son architecture soigneusement calibrée et à son équilibrage entre biais et variance, se révèle être un outil prédictif à la fois puissant et fiable pour estimer le succès des articles mesuré par le nombre de partages.
+
+
+```{r PlotVarImpRF, message=FALSE, echo=FALSE}
+plot(varImp(rf_model))
+```
+
+
+```{r ResultsRF, message=FALSE, echo=FALSE}
+predictions <- predict(rf_model, newdata = test_set)
+results <- postResample(exp(predictions), test_set$shares)
+print(results)
+```
+
+
+Le modèle de forêt aléatoire affiche un RMSE de 0.4807, suggérant une moyenne modérée des écarts entre les valeurs prédites et observées. Avec un R-squared de 0.1257, le modèle explique une part limitée, mais non négligeable, de la variance des données, ce qui indique une certaine pertinence dans la capture de l'information contenue dans les variables prédictives. Le MAE, se situant à 0.3549, reflète une estimation assez proche des valeurs réelles, bien que des erreurs ponctuelles puissent être plus conséquentes.
+
+Ce modèle de forêt aléatoire, tout en étant relativement simple, a révélé sa capacité à fournir une compréhension de base et une estimation raisonnablement précise de la dynamique influençant le nombre de partages d'articles. Il constitue un fondement solide pour des modèles prédictifs plus élaborés.
+
+## C. GAM:
+
+Le modèle GAM (Generalized Additive Model) est un type de modèle statistique flexible qui permet d'ajuster des relations non linéaires entre les variables indépendantes et la variable dépendante. Contrairement aux modèles linéaires classiques, le GAM utilise des fonctions lisses pour modéliser la dépendance, permettant une représentation plus précise et intuitive de l'impact des prédicteurs sur la variable cible. Cette caractéristique le rend particulièrement puissant pour la prédiction dans des situations où la relation entre les variables n'est pas strictement linéaire, offrant ainsi des prédictions améliorées et une meilleure compréhension des données.
+
+### C.1: 1er model GAM:
+
+D'abord, nous incluons toutes les variables sélectionnées précédemment, en considérant des relations non linéaires pour celle jugée pertinente.
+
+```{r GAM1, message=FALSE}
+gam_model_1 <- mgcv::gam(log(shares) ~ s(kw_min_avg, bs = "cr")  + timedelta +  n_tokens_title + n_tokens_content + 
+    n_non_stop_unique_tokens + num_hrefs + num_self_hrefs + num_imgs + 
+    num_videos + average_token_length + num_keywords + as.factor(data_channel_is_lifestyle) + 
+    as.factor(data_channel_is_entertainment) + as.factor(data_channel_is_bus) + as.factor(data_channel_is_socmed) + 
+    as.factor(data_channel_is_tech) + kw_min_min + kw_max_min + kw_avg_min + 
+    kw_min_max + kw_avg_max + kw_max_avg + kw_avg_avg + 
+    as.factor(weekday_is_monday) + as.factor(weekday_is_tuesday) + as.factor(weekday_is_wednesday) + 
+    as.factor(weekday_is_thursday) + as.factor(weekday_is_friday) + as.factor(weekday_is_saturday) + 
+    global_subjectivity + global_sentiment_polarity + global_rate_positive_words + 
+    global_rate_negative_words + avg_positive_polarity + min_positive_polarity + 
+    max_positive_polarity + avg_negative_polarity + min_negative_polarity + 
+    max_negative_polarity + title_subjectivity + title_sentiment_polarity + 
+    abs_title_sentiment_polarity , data = onp1)
+summary(gam_model_1)
+
+```
+
+
+Dans ce modèle GAM appliqué aux données, plusieurs variables montrent une significativité statistique, ce qui implique une relation potentielle avec le nombre de partages log-transformé. Les variables *num_hrefs*, *num_self_hrefs*, *num_imgs*, *num_videos*, *num_keywords*, ainsi que les catégories de canaux de données *lifestyle*, *entertainment*, *business*, *social media*, et *tech*, montrent une significativité avec des p-valeurs inférieures au seuil de 0.05, suggérant une influence forte sur la variable réponse. De même, *kw_min_min*, *kw_max_avg*, et *kw_avg_avg* sont significatives. Les jours de la semaine, en particulier *weekday_is_monday* à *weekday_is_friday*, ont également une forte influence. Les termes lisses pour *kw_min_avg* sont significatifs, indiquant des effets non linéaires importants sur les partages. Malgré cela, le R-squared ajusté relativement bas indique que le modèle n'explique qu'une portion modeste de la variabilité dans les données, suggérant que d'autres facteurs ou une complexité non capturée peuvent affecter les résultats des partages.
+
+
+### C.2: Modele GAM sans variable non significatives
+
+Notre modèle GAM révisé a été simplifié pour exclure les variables non significatives du premier modèle. Cette approche cible l'amélioration de la précision des prédictions en se concentrant sur les variables ayant un impact prouvé sur le nombre de partages des articles. Le nouveau modèle GAM incorpore seulement les prédicteurs avec des p-valeurs inférieures au seuil de significativité, ce qui devrait théoriquement améliorer la pertinence du modèle en éliminant le bruit introduit par les variables non pertinentes. Cela permet également de réduire la complexité du modèle, facilitant son interprétation et potentiellement améliorant la performance de validation croisée.
+
+```{r GAM2, message=FALSE}
+library(mgcv)
+
+# Construire le deuxième modèle GAM avec uniquement les variables significatives
+gam_model_2 <- mgcv::gam(log(shares) ~ 
+                           num_hrefs + 
+                           num_self_hrefs + 
+                           num_imgs + 
+                           num_videos + 
+                           num_keywords + 
+                           as.factor(data_channel_is_entertainment) + 
+                           as.factor(data_channel_is_bus) + 
+                           as.factor(data_channel_is_socmed) + 
+                           as.factor(data_channel_is_tech) + 
+                           kw_min_min + 
+                           
+                           kw_avg_avg + 
+                           as.factor(weekday_is_monday) + 
+                           as.factor(weekday_is_tuesday) + 
+                           as.factor(weekday_is_wednesday) + 
+                           as.factor(weekday_is_thursday) + 
+                           as.factor(weekday_is_friday) + 
+                           as.factor(weekday_is_saturday), 
+                         data = onp1)
+summary(gam_model_2)
+
+```
+
+Dans cette version révisée du modèle GAM, les variables ayant une forte association statistique avec le nombre de partages, telles que les références internes (*num_hrefs*), le nombre d'images (*num_imgs*), et les vidéos (*num_videos*) sont confirmées comme significatives. Les catégories de contenu telles que les affaires (*data_channel_is_bus*), les médias sociaux (*data_channel_is_socmed*), et la technologie (*data_channel_is_tech*) sont également des prédicteurs influents, tout comme la fréquence des mots-clés (kw_min_min, kw_avg_avg). La temporalité, notamment les jours de la semaine, montre également une influence significative sur les partages. Le modèle ajusté explique 13,5% de la variabilité dans les partages, ce qui indique une capacité modérée du modèle à capturer les tendances des données.
+
+### C.3 Anova pour le modèle:
+
+L'ANOVA pour le modèle GAM est utilisée pour comparer la performance des modèles et déterminer si l'ajout ou la suppression d'une variable améliore significativement la qualité de prédiction, aidant ainsi à affiner le modèle pour une meilleure précision.
+
+```{r CompModèleGAM, message=FALSE, echo=FALSE}
+# Comparaison des modèles pour évaluer l'ajout ou la suppression d'une variable
+anova(gam_model_2, gam_model_1, test = "Chisq")
+
+```
+
+Les résultats de l'ANOVA pour le modèle GAM indiquent qu'en passant du modèle 1 au modèle 2, il y a une diminution significative de la déviance résiduelle avec une p-value de 1.1e-06, ce qui signifie que l'ajout ou la modification des variables entre les deux modèles a apporté une amélioration significative de la qualité de prédiction du modèle.
+
+
+### C.4 Résultats du modèle de prédiction GAM:
+
+```{r ResultsGAM, message=FALSE, echo=FALSE}
+library(mgcv)
+library(caret)
+
+# Préparation des données
+set.seed(123) # Assurer la reproductibilité
+index <- createDataPartition(onp$shares, p=0.7, list=FALSE)
+train_data <- onp[index,]
+test_data <- onp[-index,]
+
+# Construction du modèle GAM avec les variables sélectionnées
+gam_model <- mgcv::gam(log(shares) ~ num_hrefs + num_self_hrefs +
+                         num_imgs + num_videos + num_keywords +
+                         as.factor(data_channel_is_entertainment) + as.factor(data_channel_is_bus) +
+                         as.factor(data_channel_is_socmed) + as.factor(data_channel_is_tech) +
+                         kw_min_min + kw_max_avg + kw_avg_avg +
+                         as.factor(weekday_is_monday) + as.factor(weekday_is_tuesday) +
+                         as.factor(weekday_is_wednesday) + as.factor(weekday_is_thursday) +
+                         as.factor(weekday_is_friday) + as.factor(weekday_is_saturday),
+                       data = train_data)
+
+# Évaluation du modèle sur les données de test
+pred <- predict(gam_model, newdata=test_data, type="response")
+actual <- log(test_data$shares + 1) # Ajouter 1 pour éviter le log de 0
+RMSE <- sqrt(mean((pred - actual)^2))
+cat("RMSE pour le modèle GAM:", RMSE, "\n")
+
+# Visualisation de l'importance des variables
+summary(gam_model)
+
+# Vérifier les diagnostics du modèle
+mgcv::gam.check(gam_model)
+
+# Visualiser les effets des variables importantes
+par(mfrow=c(3,3)) 
+
+```
+
+```{r ValidationCroisée, message=FALSE}
+# Réglages pour la validation croisée
+set.seed(123)
+folds <- createFolds(onp$shares, k=10, list=TRUE)
+
+# Pour stocker les RMSE de chaque réplication
+RMSEs <- numeric(length(folds))
+
+for(i in seq_along(folds)) {
+  # Création des données d'entraînement et de test pour le fold courant
+  train_data <- onp[-folds[[i]], ]
+  test_data <- onp[folds[[i]], ]
+  
+  # Construction du modèle GAM avec les variables sélectionnées
+  gam_model <- mgcv::gam(log(shares) ~ num_hrefs + num_self_hrefs +
+                           num_imgs + num_videos + num_keywords +
+                           as.factor(data_channel_is_entertainment) + as.factor(data_channel_is_bus) +
+                           as.factor(data_channel_is_socmed) + as.factor(data_channel_is_tech) +
+                           kw_min_min + kw_max_avg + kw_avg_avg +
+                           as.factor(weekday_is_monday) + as.factor(weekday_is_tuesday) +
+                           as.factor(weekday_is_wednesday) + as.factor(weekday_is_thursday) +
+                           as.factor(weekday_is_friday) + as.factor(weekday_is_saturday),
+                         data = train_data)
+  
+  # Évaluation du modèle sur les données de test du fold courant
+  pred <- predict(gam_model, newdata=test_data, type="response")
+  actual <- log(test_data$shares + 1)
+  RMSEs[i] <- sqrt(mean((pred - actual)^2))
+}
+
+```
+
+Le premier graphique Q-Q (Quantile-Quantile) montre une légère déviation des résidus par rapport à la ligne rouge, indiquant que les résidus ne suivent pas parfaitement une distribution normale, en particulier dans les extrêmes.
+
+Le deuxième graphique des résidus contre les valeurs prédites linéaires affiche une dispersion aléatoire des résidus autour de zéro sans motifs apparents, suggérant que le modèle prend bien en compte la variance des données.
+
+L'histogramme des résidus illustre la distribution des erreurs de prédiction. On observe une concentration autour de zéro mais une légère asymétrie vers la gauche, indiquant une distribution des erreurs qui pourrait être légèrement biaisée.
+
+La dernière visualisation met en relation les réponses observées avec les valeurs ajustées par le modèle. On remarque une concentration dense des données autour de la ligne y=x, ce qui suggère une adéquation raisonnable du modèle aux données observées, bien qu'il existe des résidus significatifs pour les valeurs ajustées plus faibles et plus élevées.
+
+Notre modèle GAM final offre une compréhension flexible des relations non linéaires entre les variables et log(shares), avec une variabilité expliquée significative. Toutefois, l'asymétrie des résidus et les écarts aux extrêmes suggèrent un potentiel d'amélioration, peut-être en explorant des transformations supplémentaires ou en ajoutant des termes d'interaction pour capter davantage la complexité des données.
+
+
+## D. SVR:
+
+Le modèle SVR (Support Vector Regression) a été construit et évalué à l'aide de la méthode de rééchantillonnage bootstrap avec un ensemble de données spécifique. Pour assurer la reproductibilité, deux graines ont été définies à des étapes différentes du processus. L'utilisation de 49 rééchantillonnages bootstrap indique un effort pour obtenir une estimation stable de la performance du modèle.
+
+L'entraînement a été réalisé parallèlement pour améliorer l'efficacité, en laissant un cœur libre pour les processus du système, ce qui est une bonne pratique pour ne pas surcharger la machine hôte. L'hyperparamètre C du modèle SVR a été ajusté sur une grille de valeurs logarithmiquement espacées, une approche commune pour optimiser des modèles avec des paramètres qui peuvent opérer sur des ordres de grandeur différents.
+
+La méthode svmLinear a été choisie pour l'entraînement, impliquant que l'on travaille avec un SVR linéaire, surtout quand la relation entre les variables et la réponse est inconnue ou supposée être globalement linéaire.
+
+```{r SVR, message=FALSE}
+library(caret)
+library(doParallel)
+library(bootstrap)
+library(caret)
+library(doParallel)
+
+set.seed(202) 
+bootCtrl <- trainControl(
+  method = "boot",
+  number = 49, 
+  savePredictions = TRUE,
+  allowParallel = TRUE
+)
+
+cl <- makeCluster(detectCores() - 1) 
+registerDoParallel(cl)
+
+GridC <- expand.grid(C = 10^seq(-3, 0, by = 0.5))
+
+set.seed(1410)
+svr_linear <- train(
+  log(shares) ~ ., data = onp1, method = "svmLinear",
+  trControl = bootCtrl, preProcess = c("center", "scale"),
+  tuneGrid = GridC
+)
+
+stopCluster(cl)
+registerDoSEQ() 
+plot(svr_linear)
+
+```
+
+Le graphique affiché illustre le résultat de la performance du modèle en fonction de l'hyperparamètre C. La métrique utilisée est la RMSE (Root Mean Squared Error) calculée à partir des rééchantillonnages bootstrap. La courbe suggère qu'un faible C (0.003162278) est optimal selon le critère de sélection, ce qui suggère une certaine robustesse.
+
+```{r SVRBestTune, message=FALSE, echo=FALSE}
+svr_linear$bestTune
+```
+
+```{r SVRR, message=FALSE}
+library(DALEX)
+library(caret)
+
+features <- onp1[, which(names(onp1) != "shares")]
+
+custom_predict <- function(model, newdata) {
+  predict(model, newdata)
+}
+
+
+explainer_svrlinear <- DALEX::explain(
+  model = svr_linear$finalModel, 
+  data = features, 
+  y = log(onp1$shares),  
+  predict_function = custom_predict,  
+  label = "SvrLinear"  
+)
+
+
+```
+
+Le processus montre une méthodologie robuste pour l'entraînement et l'évaluation d'un modèle SVR, avec des préoccupations pour la reproductibilité et l'efficience computationnelle. Le meilleur hyperparamètre a été sélectionné à l'aide de techniques de validation croisée, et des efforts ont été faits pour comprendre et expliquer les prédictions du modèle.
+
+## E. Les Méthodes de pénalisation:
+
+Les méthodes de pénalisation, telles que Ridge, Lasso et Elastic Net, constituent des approches sophistiquées pour la régularisation des modèles prédictifs. Elles sont particulièrement efficaces pour gérer la multicollinéarité entre les variables prédictives et pour sélectionner les variables les plus significatives dans des ensembles de données de grande dimension. La méthode Ridge applique une pénalité proportionnelle au carré des coefficients, permettant de réduire leur magnitude sans pour autant les annuler. Le Lasso, en revanche, peut réduire certains coefficients à zéro, réalisant ainsi une sélection de variables. Elastic Net combine les atouts de ces deux approches, offrant une solution robuste pour les modèles confrontés à de multiples variables corrélées. L'application de ces techniques vise à améliorer la performance prédictive des modèles tout en maintenant leur simplicité et leur interprétabilité.
+
+### E.1  RIDGE:
+
+Le modèle Ridge, aussi connu sous le nom de régression ridge, est une technique de régularisation qui s'applique pour contrôler la complexité des modèles de régression. En ajoutant un terme de pénalité, qui est proportionnel au carré des coefficients de régression, à la fonction de coût, le modèle Ridge vise à minimiser l'impact de la multicollinéarité entre les variables prédictives. Cette approche permet de réduire la variance des estimations des coefficients, améliorant ainsi la stabilité et la performance du modèle sur des données non vues, tout en évitant le surajustement. En dépit de réduire la taille des coefficients, la régression Ridge ne les ramène pas exactement à zéro, ce qui signifie que toutes les variables initiales restent dans le modèle final. Cette caractéristique fait du modèle Ridge un outil précieux lorsque l'objectif est de conserver l'information de toutes les variables prédictives tout en contrôlant pour la surcomplexité du modèle
+
+```{r Ridge, message=FALSE}
+library(caret)
+library(glmnet)
+
+# Préparation des données
+set.seed(123) # Pour la reproductibilité
+data <- onp1
+data$shares <- log(data$shares + 1) # Appliquer le log
+
+# Créer un ensemble d'entraînement et de test
+index <- createDataPartition(data$shares, p = 0.7, list = FALSE)
+trainData <- data[index, ]
+testData <- data[-index, ]
+
+# Définir le contrôle de la formation avec une validation croisée de 10 plis
+trainControl <- trainControl(method = "cv", number = 10)
+
+# Grille de recherche pour lambda (alpha = 0 pour Ridge)
+grid <- expand.grid(.lambda = 10^seq(-3, 3, length = 100),
+                    .alpha = 0)
+
+# Entraînement du modèle Ridge
+ridgeModel <- train(formula, data = trainData, 
+                    method = "glmnet",
+                    trControl = trainControl, 
+                    tuneGrid = grid)
+
+predictions <- predict(ridgeModel, newdata = testData)
+
+RMSE <- sqrt(mean((predictions - log(testData$shares + 1))^2))
+cat("RMSE pour le modèle Ridge :", RMSE, "\n")
+
+# Visualisation des résultats
+print(head(ridgeModel))
+plot(ridgeModel)
+
+```
+
+```{r BestRidge, message=FALSE, echo=FALSE}
+bestlridge <- as.numeric(ridgeModel$bestTune$lambda)
+options(digits=3)
+bestlridge
+```
+
+Le modèle Ridge a démontré une performance consistante à travers une large gamme de valeurs lambda, avec un RMSE minimum de 0.07522321 observé à plusieurs seuils lambda, indiquant une faible sensibilité du modèle à ce paramètre dans ce domaine spécifique. Le choix optimal de lambda à 0.00152, qui minimise le RMSE, souligne l'importance d'une régularisation légère dans l'amélioration de la prédiction de log(shares), suggérant que même une petite pénalisation peut contribuer à la précision du modèle en atténuant le risque de surajustement.
+La courbe présente une descente rapide du RMSE à mesure que le paramètre de régularisation augmente, stabilisant la performance du modèle Ridge à partir d'une certaine valeur. Ceci illustre l'effet de la régularisation sur la réduction de l'erreur de prédiction jusqu'à un seuil optimal au-delà duquel des gains supplémentaires deviennent marginaux, indiquant l'identification d'une balance appropriée entre biais et variance.
+
+```{r Beta, message=FALSE, echo=FALSE}
+library(kableExtra)
+beta <- coef(ridgeModel$finalModel, ridgeModel$bestTune$lambda) 
+beta[order(abs(beta[,]), decreasing = T),] %>%  
+  kable(digits=2) %>% 
+  kable_styling(latex_options = "HOLD_position")
+```
+
+```{r VarImpRidge, message=FALSE, echo=FALSE}
+plot(varImp(ridgeModel))
+```
+
+Cette représentation graphique des importances de variables montre que global_rate_negative_words possèdent les coefficients d'influence les plus élevés sur le modèle, avec des valeurs de 1.93 et -0.64 respectivement. Les variables *global_rate_positive_words* et *global_sentiment_polarity* jouent également un rôle significatif, bien que moins prononcé. Les autres variables affichent des importances nettement inférieures, indiquant une contribution marginale à la prédiction du modèle. Cette analyse suggère que les sentiments globaux, tant positifs que négatifs, ainsi que la fréquence des mots négatifs sont des prédicteurs clés du nombre de partages.
+
+Le modèle Ridge a montré une performance constante à travers différents paramètres de régularisation, suggérant une stabilité dans la prédiction du log des partages. L'optimisation a identifié un lambda de 0.00152 comme le plus efficace, indiquant un équilibre entre ajustement du modèle et complexité. Ce modèle constitue donc un outil fiable pour la prédiction dans notre contexte d'étude des partages d'articles.
+
+### E.2 LASSO
+
+Le modèle LASSO (Least Absolute Shrinkage and Selection Operator) est une technique de régression qui réalise à la fois la sélection de variables et la régularisation afin d'améliorer la précision de la prédiction et l'interprétabilité du modèle statistique produit. En ajoutant une pénalité sur la somme des valeurs absolues des coefficients de régression, le LASSO tend à produire des modèles avec un nombre restreint de paramètres, réduisant ainsi les coefficients de certaines variables à zéro et éliminant effectivement ces variables du modèle final. Cette méthode est particulièrement utile dans les situations où le nombre de variables explicatives est très grand par rapport au nombre d'observations.
+
+```{r Lasso, message=FALSE}
+numbers <- 5
+repeats <- 20
+rcvTunes <- 11 
+
+nrcore <- 8
+cl <- makeCluster(mc <- getOption("cl.cores", nrcore))
+registerDoParallel(cl)
+
+lambda <- 10^(-seq(3.5, 2.5, length = rcvTunes))*sd(log(onp$shares + 1)) 
+
+set.seed(123)
+rcvControl <- trainControl(method = "repeatedcv",
+                           number = numbers,
+                           repeats = repeats,
+                           search = "random")
+
+lasso <- train(formula, data = onp1, 
+               method = "glmnet",
+               trControl = rcvControl, 
+               preProcess = c("center", "scale"),
+               tuneGrid = expand.grid(alpha = 1, 
+                                      lambda = lambda))
+stopCluster(cl)
+plot(lasso)
+
+```
+
+La courbe pour le modèle Lasso montre une décroissance rapide de l'erreur de validation croisée RMSE avec l'augmentation du paramètre de régularisation jusqu'à atteindre un creux, indiquant le lambda optimal. Au-delà de ce point, l'erreur augmente, ce qui signifie que le modèle devient moins performant pour des valeurs de lambda plus élevées. Le meilleur lambda identifié est 0.00102, qui offre un compromis idéal entre biais et variance, aboutissant à la meilleure généralisation possible du modèle sur de nouvelles données.
+
+```{r BestLasso, message=FALSE, echo=FALSE}
+bestllasso <- as.numeric(lasso$bestTune$lambda)
+options(digits=3)
+bestllasso
+```
+
+Le lambda optimal de 0.00102 pour le modèle Lasso indique la quantité de pénalisation appliquée pour minimiser la suradaptation. À ce niveau de régularisation, le modèle conserve les caractéristiques pertinentes tout en éliminant celles qui contribuent le moins à la prédiction, permettant ainsi un équilibre entre la complexité du modèle et son pouvoir prédictif. Ce paramètre est sélectionné pour optimiser les performances du modèle sur des données non vues en contrôlant la complexité et en promouvant la parcimonie dans les caractéristiques utilisées.
+
+```{r PlotVarImpLasso, message=FALSE, echo=FALSE}
+plot(varImp(lasso))
+```
+
+Sur le modèle Lasso, on se retrouve avec d'autres variables importante tel que kw_avg_avg et les jours de publications des articles et le nombre d'images, on a aussi d'autres types de variables beaucoup pris en compte, comme celle de la négativité du contenue.
+
+
+Le modèle Lasso, avec un lambda optimal de 0.00102, révèle son efficacité en régulant la complexité du modèle tout en maintenant la pertinence des prédicteurs significatifs. Il a mis en lumière l'importance des variables telles que le nombre moyen de mots-clés, les jours de publication, et le nombre d'images, soulignant leur influence sur la popularité des articles. La capacité du modèle à capter la négativité du contenu en tant que prédicteur clé démontre sa finesse analytique. Le modèle Lasso se distingue par sa précision et sa sélection rigoureuse de variables, le rendant robuste et fiable pour anticiper le nombre de partages d'articles.
+
+
+### E.3 Elastic Net
+
+Le modèle Elastic Net combine les atouts de la régularisation Ridge et LASSO, permettant de gérer la multicollinéarité entre les prédicteurs tout en réalisant une sélection de variables. Cette approche est particulièrement utile dans le contexte de notre prédiction du nombre de partages log(shares), car elle nous aide à construire un modèle robuste et parcimonieux, optimisant la prédiction tout en réduisant la complexité du modèle et le risque de surajustement.
+
+```{r ElasticNet, message=FALSE}
+library(caret)
+library(glmnet)
+library(doParallel)
+
+# Préparer les données
+data <- onp1
+data$shares <- log(data$shares + 1) # Pour assurer que toutes les valeurs sont positives
+
+# Définir les paramètres pour la validation croisée
+numbers <- 5 # Nombre de folds pour la cross-validation
+repeats <- 5 # Nombre de répétitions pour la cross-validation
+nrcore <- detectCores() - 1 # Nombre de cœurs à utiliser, un de moins pour éviter de surcharger la machine
+
+# Créer un cluster parallèle
+cl <- makeCluster(nrcore)
+registerDoParallel(cl)
+
+# Grille de paramètres pour Elastic Net
+lambda <- 10^seq(-3.5, -1, length = 10)
+alpha <- seq(0, 1, length = 10)
+
+# Contrôle de l'entraînement
+rcvControl <- trainControl(method = "repeatedcv", 
+                           number = numbers, 
+                           repeats = repeats,
+                           search = "random",
+                           allowParallel = TRUE)
+
+# Entraînement du modèle Elastic Net
+set.seed(123)
+enetModel <- train(log(shares) ~ ., data = data, 
+                   method = "glmnet",
+                   trControl = rcvControl, 
+                   tuneGrid = expand.grid(alpha = alpha, lambda = lambda),
+                   preProcess = c("center", "scale"))
+
+# Arrêter le cluster parallèle
+stopCluster(cl)
+registerDoSEQ()
+
+# Visualiser les performances du modèle
+plot(enetModel)
+
+```
+
+La courbe illustre l'impact de différents paramètres de régularisation et de pourcentages de mélange sur l'erreur de validation croisée RMSE pour le modèle Elastic Net. La courbe la plus basse indique le niveau de pénalisation optimal pour minimiser le RMSE. Chaque ligne représente un niveau de régularisation distinct, et on observe que l'erreur diminue puis augmente à mesure que le pourcentage de mélange (Lasso vs Ridge) augmente. Cette tendance suggère qu'une combinaison spécifique de régularisation Lasso et Ridge conduit à une performance optimale du modèle.
+
+```{r BestEnet, message=FALSE, echo=FALSE}
+bestalpha <- enetModel$bestTune$alpha
+bestlambda <- enetModel$bestTune$lambda
+options(digits=3)
+bestalpha
+bestlambda
+```
+
+Le meilleur alpha de 1 indique que le modèle Elastic Net privilégie une approche Lasso pure, mettant l'accent sur la sélection de variables par réduction de leurs coefficients vers zéro. Le meilleur lambda de 0.000316 offre le niveau de régularisation idéal, réduisant la complexité du modèle pour éviter la suradaptation tout en conservant suffisamment de flexibilité pour capturer les relations significatives dans les données.
+
+```{r PlotVarImp, message=FALSE, echo=FALSE}
+plot(varImp(enetModel))
+```
+
+Sur ce modèle d'Elastic Net, on se retrouve avec des variables importantes ressemblante à celle du Lasso mais avec l'ajout de la thématique des articles.
+
+L'approche Elastic Net avec un alpha de 1 et un lambda de 0.000316 révèle une performance prédictive optimale, alliant parcimonie et capacité de généralisation. Cette configuration spécifique de l'Elastic Net, favorisant la sélection de caractéristiques à travers la pénalisation Lasso tout en maintenant la stabilité du modèle grâce à Ridge, permet de maintenir un équilibre précis entre réduction du surajustement et conservation d'une capacité prédictive robuste. La présence de variables thématiques suggère également l'importance du contenu de l'article dans la prédiction du nombre de partages, confirmant l'utilité de cette méthode pour affiner notre modèle de prédiction.
+
+
+# V. Comparaison des modèles:
+
+Dans cette section, nous nous consacrons à l'évaluation comparative de nos modèles prédictifs concernant le nombre de partages d'articles en ligne. Notre objectif est de mesurer la performance de ces modèles en les juxtaposant aux résultats obtenus par Fernandes et al. dans leur étude. Cette démarche vise à situer l'efficacité de nos approches dans un contexte élargi, en mettant en perspective les avancées méthodologiques et les résultats quantitatifs que nous avons réalisés par rapport à des travaux antérieurs dans le domaine. Cette comparaison permettra d'identifier les atouts et les limites de nos modèles et d'explorer les voies d'optimisation possibles pour accroître la précision de nos prédictions sur la popularité des contenus en ligne.
+
+L'étude présente un Système de Support Décisionnel Intelligent (IDSS) innovant pour prédire la popularité des actualités en ligne avant leur publication, puis pour optimiser les caractéristiques des articles afin d'améliorer la probabilité de popularité prédite. En exploitant un ensemble de données des articles du site Mashable, cinq modèles ont été testés. Le modèle Random Forest s'est distingué avec une puissance de discrimination de 73%. En outre, l'optimisation des articles via des recherches locales en escalade stochastique a montré une amélioration moyenne significative de 15 points de pourcentage en termes de probabilité de popularité estimée. Cette IDSS, qui combine prédiction et optimisation, offre un outil précieux pour les auteurs d'actualités en ligne, leur permettant d'augmenter le potentiel de popularité de leurs articles. Cette approche proactive et novatrice représente une avancée notable dans le domaine de la gestion et de la prédiction du contenu en ligne.
+
+## Analyse des modèles regressionnels mis en place:
+
+Durant notre projet, contrairement aux prédictions mise en place dans la revue, on a opté pour des modèles de regression et cela pour prédire un nombre proche du nombre de partage des articles.
+Pour évaluer ces modèles on s'interesse à la RMSE, Racine Carrée de l'Erreur Quadratique Moyenne, qui est une métrique d'évaluation pour les modèles de régression qui mesure la racine carrée de la moyenne des carrés des écarts entre les valeurs prédites et les valeurs observées. Elle offre une évaluation de la performance du modèle en termes de précision des prédictions, avec des valeurs plus basses indiquant un meilleur ajustement du modèle aux données.
+
+Prenant en compte les RMSE des modèles utilisés, on peut obtenir le graphique suivant.
+
+```{r PlotRMSE, message=FALSE, echo=FALSE}
+rf_RMSE <- rf_model$results$RMSE
+gam_RMSE <- RMSEs 
+btree_RMSE <- rmse_results
+cptree_RMSE <- cptree$results$RMSE
+ridge_RMSE <- ridgeModel$results$RMSE
+lasso_RMSE <- lasso$results$RMSE
+enet_RMSE <- enetModel$results$RMSE
+
+# Combiner tous les vecteurs RMSE dans une liste pour le tracé
+RMSE_list <- list(rf=rf_RMSE, gam=gam_RMSE, cptree=cptree_RMSE, btree=btree_RMSE, ridge=ridge_RMSE, lasso=lasso_RMSE, enet=enet_RMSE)
+
+# Boxplot combiné avec des couleurs spécifiques pour chaque modèle
+boxplot(RMSE_list, col=c("brown", "grey", "black","orange"  , "red", "blue", "green"), main="Comparaison des modèles", names=c("RF", "GAM", "CPTree", "B_Tree", "Ridge", "Lasso", "ENet"), ylab="RMSE", ylim=c(0, 1))
+
+```
+
+```{r PlotReglages, message=FALSE, echo=FALSE}
+# Réglage des paramètres graphiques pour avoir 3 plots sur une ligne
+par(mfrow=c(1,1))
+
+# Boxplot pour le modèle rf
+boxplot(rf_model$results$RMSE, main="random forest", col="brown")
+
+# Boxplot pour le modèle gam
+#boxplot(gam_model$results$RMSE, main="GAM", col="yellow")
+boxplot(RMSEs, main="le modèle GAM", ylab="RMSE", col="grey")
+
+# Boxplot pour le modèle complexity prunnig tree: 
+boxplot(cptree$results$RMSE, main="Complexity prunning tree", col="black")
+
+# Boxplot pour le modèle begged tree: 
+boxplot(rmse_results, main="Distribution des RMSE pour le modèle de Bagged Trees",
+        ylab="RMSE", col="orange", border="darkblue")
+
+
+
+# Boxplot pour le modèle Ridge
+boxplot(ridgeModel$results$RMSE, main="Ridge", col="red")
+
+# Boxplot pour le modèle Lasso
+boxplot(lasso$results$RMSE, main="Lasso", col="blue")
+
+# Boxplot pour le modèle Elastic Net
+boxplot(enetModel$results$RMSE, main="Elastic Net", col="green")
+
+# Réinitialisation des paramètres graphiques
+par(mfrow=c(1,1))
+
+```
+
+Le boxplot de comparaison des modèles illustre la distribution de l'erreur quadratique moyenne (RMSE) pour différents modèles de régression appliqués à la prédiction du nombre de partages d'articles. Les modèles incluent Random Forest (RF), Generalized Additive Models (GAM), Complexity Pruning Tree (CPTree), Bagged Trees (B_Tree), Ridge Regression, Lasso et Elastic Net (ENet).
+
+Sur ce graphique, nous constatons que le modèle RF présente la distribution la plus resserrée avec les valeurs RMSE les plus basses, ce qui indique une haute précision et une faible variabilité dans ses prédictions. Le modèle B_Tree, représenté par une boîte orange, montre une plus grande dispersion des erreurs RMSE, indiquant une performance plus inconsistante.
+
+À l'autre extrémité du spectre, les modèles Ridge, Lasso et ENet présentent des médianes de RMSE très basses et peu de variation, suggérant qu'ils sont les plus stables en termes de performance sur les données de test. Cependant, ils semblent avoir un RMSE globalement plus élevé que les modèles RF et GAM.
+
+En conclusion, si l'on se base sur la médiane des RMSE, le modèle Random Forest apparaît comme le plus performant pour prédire le nombre de partages, suivis de près par les modèles Ridge et Elastic Net. Pour un choix définitif, on privilégiera le modèle avec le RMSE le plus bas et la variance la plus faible, ce qui semble être le modèle Random Forest.
+
+
+## Prédiction chiffré avec le meilleur modèle:
+
+Dans le cadre de notre analyse, nous avons identifié le modèle de forêt aléatoire (Random Forest) comme étant le plus performant pour prédire le nombre de partages d'articles. En vue d'une application pratique de ce modèle, nous mettons un accent particulier sur l'estimation des intervalles de confiance pour les prédictions obtenues. L'élaboration de ces intervalles est cruciale, car elle fournit une mesure de l'incertitude associée à chaque prédiction et enrichit ainsi notre compréhension de la variabilité des données. Ces intervalles, calculés à un niveau de confiance de 90%, permettent non seulement d'encadrer les prévisions, mais offrent également une fourchette dans laquelle les valeurs réelles sont susceptibles de se situer. Cette approche contribue à renforcer la fiabilité des prédictions et sert d'outil décisionnel précieux pour évaluer la portée potentielle des articles dans des conditions diverses et variables.
+
+
+```{r PrédictionsFinales, message=FALSE, echo=FALSE}
+library(caret)
+library(randomForest)
+library(parallel)
+library(doParallel)
+
+data_rf <- onp1
+data_rf$shares <- log(data_rf$shares + 1)
+
+set.seed(123) 
+index_train <- createDataPartition(data_rf$shares, p = 0.3, list = FALSE)
+train_set <- data_rf[index_train, ]
+test_set <- data_rf[-index_train, ]
+
+nrcore <- detectCores() - 1
+cl <- makeCluster(nrcore)
+registerDoParallel(cl)
+
+control <- trainControl(method = "boot", number = 20, savePredictions = 'final')
+
+rf_model <- train(shares ~ ., data = train_set, method = "rf",
+                  trControl = control, tuneLength = 5)
+
+stopCluster(cl)
+registerDoSEQ()
+
+predictions <- predict(rf_model, newdata = test_set)
+```
+
+```{r AfficherResults, message=FALSE, echo=FALSE}
+saved_predictions <- rf_model$pred
+std_error <- sd(saved_predictions$pred - saved_predictions$obs)
+
+# Calculer les intervalles de confiance à 90%
+alpha <- 0.1
+z_score <- qnorm(1 - alpha / 2)
+lower_bound <- predictions - z_score * std_error
+upper_bound <- predictions + z_score * std_error
+
+# Créer un dataframe avec les prédictions, les intervalles inférieurs et supérieurs, et les valeurs réelles
+results <- data.frame(
+  predicted = predictions,
+  lower_bound = lower_bound,
+  upper_bound = upper_bound,
+  real_value = test_set$shares 
+)
+
+head(results)
+```
+
+Dans cette analyse, nous avons renversé la log-transformation appliquée à nos prédictions et valeurs réelles en utilisant la fonction exponentielle. Cette étape est cruciale pour ramener nos prédictions à l'échelle originale des partages et rendre nos résultats interprétables dans le contexte réel. Ensuite, nous avons calculé la différence en pourcentage entre les valeurs réelles de partages et celles prédites pour évaluer la précision de notre modèle. Nous avons également déterminé si les valeurs réelles se situaient dans les intervalles de confiance prédits, fournissant ainsi une mesure de la fiabilité de nos prédictions. Le pourcentage de prédictions correctes reflète la proportion de fois où le modèle a réussi à capturer la vraie valeur des partages à l'intérieur de l'intervalle prédit, ce qui donne un aperçu significatif de l'efficacité du modèle en termes de précision et de fiabilité des prédictions.
+
+```{r Inversion, message=FALSE, echo=FALSE}
+# Appliquer l'exponentielle pour inverser la transformation logarithmique
+results$predicted <- exp(results$predicted)
+results$lower_bound <- exp(results$lower_bound)
+results$upper_bound <- exp(results$upper_bound)
+results$real_value <- exp(results$real_value) - 1  # Retirer le +1 ajouté avant la transformation log
+
+# Calculer la différence en pourcentage
+results$perc_diff <- abs(results$real_value - results$predicted) / results$real_value * 100
+
+# Calculer si la valeur réelle est dans l'intervalle prédit
+results$in_interval <- with(results, real_value >= lower_bound & real_value <= upper_bound)
+
+# Pourcentage des prédictions correctes (dans l'intervalle)
+percentage_correct <- mean(results$in_interval) * 100
+
+# Ajouter une colonne pour la différence en pourcentage la plus proche
+results$closest_bound <- with(results, ifelse(abs(real_value - lower_bound) < abs(real_value - upper_bound), 
+                                              abs(real_value - lower_bound), 
+                                              abs(real_value - upper_bound)))
+results$closest_perc_diff <- with(results, closest_bound / real_value * 100)
+
+# Afficher le pourcentage de prédictions correctes et un aperçu des résultats
+cat("Pourcentage de partages bien prédits (dans l'intervalle de prédiction) :", percentage_correct, "%\n")
+head(results)
+
+```
+
+Le modèle de forêt aléatoire a démontré une capacité remarquable à prédire avec précision le nombre de partages d'articles, avec un taux impressionnant de plus de 90% des prédictions tombant dans l'intervalle de prédiction à 90% de confiance. Ce niveau de performance indique non seulement que le modèle est bien ajusté et capture efficacement la variabilité inhérente aux données, mais aussi qu'il possède une forte capacité de généralisation à de nouvelles données non observées pendant l'entraînement. L'utilisation d'intervalles de prédiction offre un aperçu supplémentaire sur la fiabilité des prédictions, fournissant une mesure quantitative de l'incertitude associée à chaque prédiction. Cette approche renforce la confiance dans la capacité du modèle à être utilisé dans des applications pratiques, où comprendre la gamme probable des résultats est tout aussi critique que la prédiction elle-même.
+
+La comparaison entre les modèles de régression a révélé que le modèle de forêt aléatoire surpasse les autres en termes de précision de prédiction, avec un pourcentage élevé de prédictions tombant dans l'intervalle de confiance de 90%. Ce résultat souligne l'efficacité de la forêt aléatoire dans la gestion de la complexité des données et sa capacité à fournir des estimations fiables et précises du nombre de partages d'articles. En intégrant des intervalles de prédiction, nous avons pu quantifier l'incertitude autour des prédictions, offrant une couche supplémentaire de transparence et de confiance dans les résultats du modèle. Ce modèle se distingue donc comme un outil puissant pour prédire le comportement de partage d'articles.
+
+# VI. Conclusion:
+
+Au cours de notre étude, nous avons exploré la prédiction du nombre de partages d'articles en ligne à travers divers modèles de régression, cherchant à optimiser notre compréhension des facteurs influençant la popularité des contenus numériques. 
+
+En appliquant des techniques avancées telles que les arbres de décision, les forêts aléatoires, le GAM, et les modèles de pénalisation, nous avons pu identifier des caractéristiques clés et leurs interactions complexes qui affectent le nombre de partages. D'après nos observations, on retrouve une forte importance de la subjectivité des articles, ainsi un article prenant position est généralement plus suseptible d'être partager. Aussi, le thème de l'article est un indicateur crucial de sa popularité, ajoutant à cela le nombre d'images et la date de publication.
+
+Par rapport aux modèles testés, l'approche de forêt aléatoire s'est révélée particulièrement efficace, démontrant une capacité supérieure à capturer la variabilité des données et à fournir des prédictions précises, comme en témoigne son faible RMSE par rapport aux autres méthodes. 
+
+Cette analyse nous a non seulement permis d'évaluer l'efficacité de différentes stratégies de modélisation mais a aussi offert des insights précieux sur les éléments essentiels à considérer dans la création de contenus engageants et largement partagés sur les plateformes numériques.
+
+Notre travail peut contribuer à une meilleure compréhension de la dynamique de partage des articles en ligne, offrant une base solide pour de futures recherches et applications pratiques dans le domaine du marketing de contenu et de l'analyse prédictive, et cela de manière differente de celle utilisée par Fernandes et al. dans leurs travail de prédiction par catégorie.
+
+
+
+
