@@ -1,0 +1,1526 @@
+---
+title: "Combien coûte un confinement ?"
+author: "Guillaume Maurin & Elyas Ben Jebara"
+date: "2024-03-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, options(scipen = 999))
+# Configurer R pour ne pas utiliser l'écriture scientifique
+
+```
+
+Les fiches sectorielles ont été converties manuellement en fichier CSV. Les fichiers originaux et les fichiers en question sont disponibles dans le dossier ZIP.
+
+#Importation et Préparation des données
+
+```{r}
+# Chemin d'accès de base
+base_path <- "C:/Users/guima/OneDrive/Bureau/Cout du confinement - MAURIN BEN JEBARA"
+
+# Fonctions pour importer les fichiers CSV
+import_csv_semicolon <- function(file_path) {
+  read.csv(file_path, sep = ";", stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+import_csv_comma <- function(file_path) {
+  read.csv(file_path, sep = ",", stringsAsFactors = FALSE, check.names = FALSE)
+}
+
+# Fonction pour extraire le nom de base d'un fichier sans l'extension
+get_file_name_without_extension <- function(file_path) {
+  tools::file_path_sans_ext(basename(file_path))
+}
+
+# Importation et nommage pour 'FRANCE'
+files_france <- list.files(path = file.path(base_path, "FRANCE"), full.names = TRUE, pattern = "\\.csv$")
+data_france <- lapply(files_france, import_csv_semicolon)
+names(data_france) <- sapply(files_france, get_file_name_without_extension)
+
+# Importation et nommage pour 'HR'
+files_hr <- list.files(path = file.path(base_path, "SECTEURS/HR"), full.names = TRUE, pattern = "\\.csv$")
+data_hr <- lapply(files_hr, import_csv_comma)
+names(data_hr) <- sapply(files_hr, get_file_name_without_extension)
+
+# Importation et nommage pour 'C'
+files_c <- list.files(path = file.path(base_path, "SECTEURS/C"), full.names = TRUE, pattern = "\\.csv$")
+data_c <- lapply(files_c, import_csv_comma)
+names(data_c) <- sapply(files_c, get_file_name_without_extension)
+```
+
+```{r}
+# Suppression des trois premières lignes et conservation des deux premières colonnes pour chaque dataframe
+data_france <- lapply(data_france, function(df) df[-c(1:3), 1:2])
+```
+
+```{r}
+library(zoo)
+
+# Fonction pour convertir les données trimestrielles
+convert_quarterly_data <- function(df) {
+  df[[1]] <- as.Date(as.yearqtr(df[[1]], format = "%Y-T%q"))
+  df[[2]] <- as.numeric(as.character(df[[2]]))
+  df
+}
+
+# Fonction pour convertir les données mensuelles
+convert_monthly_data <- function(df) {
+  df[[1]] <- as.Date(as.yearmon(df[[1]], format = "%Y-%m"))
+  df[[2]] <- as.numeric(as.character(df[[2]]))
+  df
+}
+
+# Noms de dataframes trimestriels et mensuels
+quarterly_names <- c("CHOMAGE", "EMPLOI SALARIE", "FBCF", "INDICE REF LOYERS",
+                     "INDICES LOYERS COMMERCIAUX", "SOLDEEXT CONTRIB PIB", "PIB")
+monthly_names <- c("COURS MATIERES PREMIERES", "INDICATEUR CLIMAT AFFAIRE COMMERCE DETAIL + AUTOMOBILE", "INDICATEUR CLIMAT AFFAIRE SERVICES",   
+                   "INDICE VOLUME VENTES", "INDICE CONFIANCE MENAGES", "INDICE PRIX CONSO", "INFLATION SOUSJACENTE")
+
+# Appliquer les transformations adéquates pour chaque dataframe et conserver les noms
+data_france <- Map(function(df, name) {
+  if (name %in% quarterly_names) {
+    convert_quarterly_data(df)
+  } else if (name %in% monthly_names) {
+    convert_monthly_data(df)
+  } else {
+    df
+  }
+}, data_france, names(data_france))
+
+```
+
+```{r}
+# Boucle à travers la liste data_france
+for (df_name in names(data_france)) {
+  # Obtenir le dataframe actuel dans la liste
+  df <- data_france[[df_name]]
+  
+  # Vérifier si la colonne 'Libellé' existe dans le dataframe
+  if("Libellé" %in% names(df)) {
+    # Calculer le minimum et le maximum de la colonne 'Libellé'
+    min_value <- min(df$Libellé, na.rm = TRUE)
+    max_value <- max(df$Libellé, na.rm = TRUE)
+    
+    # Afficher les résultats
+    cat(paste("Dans le dataframe", df_name, "le minimum de 'Libellé' est", min_value, "et le maximum est", max_value, "\n"))
+  } else {
+    cat(paste("Le dataframe", df_name, "ne contient pas la colonne 'Libellé'.\n"))
+  }
+}
+
+```
+```{r}
+# Noms pour renommer les secondes colonnes
+column_names <- c("Taux de chômage - France métropolitaine", "Cours Pétrole Brut Importé", 
+                  "Emplois salariés trimestriels", "FBCF - Contribution au PIB", "Indicateur Climat Affaire Commerce - Base 100", "Indicateur 
+                  Climat Affaire Services - Base 100", "Indicateur Confiance Ménages", "Indice prix à la consommation - Ménages", 
+                  "IRL (Indice de référence des loyers)", "Indice des volumes de ventes - Base 100", "ILC (Indice des loyers commerciaux)", 
+                  "Indice d'inflation sous-jacente", "Evolution PIB - prix chainés", 
+                  "Solde exterieur - Contribution au PIB")
+
+  for (i in seq_along(data_france)) {
+    # Renommer la deuxième colonne du dataframe
+    names(data_france[[i]])[2] <- column_names[i]
+  }
+
+```
+
+```{r}
+# Création d'une liste de headers avant le filtrage
+headers_beforec <- lapply(data_c, function(df) df$Header)
+
+# Appliquer le filtrage pour obtenir une liste de dataframes filtrés (comme précédemment)
+common_headersc <- Reduce(intersect, headers_beforec)
+data_c <- lapply(data_c, function(df) df[df$Header %in% common_headersc, ])
+
+# Création d'une liste de headers après le filtrage
+headers_afterc <- lapply(data_c, function(df) df$Header)
+
+# Trouver les headers qui ont été enlevés
+headers_removedc <- mapply(setdiff, headers_beforec, headers_afterc, SIMPLIFY = FALSE)
+
+```
+
+```{r}
+print(headers_removedc)
+```
+
+```{r}
+print(headers_afterc$C471)
+```
+
+```{r}
+# Pour renommer les éléments
+renommerc <- function(df) {
+  df$Header <- ifelse(df$Header == "Vente en gros", "DCA Vente en gros", df$Header)
+  df$Header <- ifelse(df$Header == "Vente au détail, hors carburant", "DCA Vente au détail, hors carburant", df$Header)
+  df$Header <- ifelse(df$Header == "Fabrication", "DCA Fabrication", df$Header)
+  df$Header <- ifelse(df$Header == "Services", "DCA Services", df$Header)
+  df$Header <- ifelse(df$Header == "Carburant", "DCA Carburant", df$Header)
+  df$Header <- ifelse(df$Header == "Réparation", "DCA Réparation", df$Header)
+  df$Header <- ifelse(df$Header == "Centrales d'achats, grossistes, France", "RF - Centrales d'achats, grossistes, France", df$Header)
+  df$Header <- ifelse(df$Header == "Producteurs, filiales de commercialisation, France", "RF - Producteurs, filiales de commercialisation, France", df$Header)
+  df$Header <- ifelse(df$Header == "Grossistes, centrales d'achats, producteurs, étranger", "RF - Grossistes, centrales d'achats, producteurs, étranger", df$Header)
+  df$Header <- ifelse(df$Header == "Autres, France", "RF - Autres, France", df$Header)
+  df$Header <- ifelse(df$Header == "Total de ces dépenses", "TotalDépensesProfessionnelles", df$Header)
+  return(df)
+}
+
+# Pour supprimer des lignes
+supprimer_lignes <- function(df) {
+  df <- df[!df$Header %in% c("Ensemble", "Total de ces produits","Certains produits ne sont pas connus en détail : ainsi, les libellés des codes se terminant par '..' correspondent à ceux de la NAF sur 5 positions."), ]
+  return(df)
+}
+
+# Appliquer les fonctions à chaque data.frame de la liste
+data_c <- lapply(data_c, function(df) {
+  df <- renommerc(df)
+  df <- supprimer_lignes(df)
+  return(df)
+})
+```
+
+```{r}
+# Création d'une liste de headers avant le filtrage
+headers_beforehr <- lapply(data_hr, function(df) df$Header)
+
+# Appliquer le filtrage pour obtenir une liste de dataframes filtrés (comme précédemment)
+common_headershr <- Reduce(intersect, headers_beforehr)
+data_hr <- lapply(data_hr, function(df) df[df$Header %in% common_headershr, ])
+
+# Création d'une liste de headers après le filtrage
+headers_afterhr <- lapply(data_hr, function(df) df$Header)
+
+# Trouver les headers qui ont été enlevés
+headers_removedhr <- mapply(setdiff, headers_beforehr, headers_afterhr, SIMPLIFY = FALSE)
+```
+
+```{r}
+print(headers_removedhr)
+```
+
+```{r}
+print(headers_afterhr$HR551)
+```
+
+```{r}
+# Pour renommer les éléments
+renommerhr <- function(df) {
+  df$Header <- ifelse(df$Header == "     dont Hors Union européenne", "Clients : étranger Hors UE", df$Header)
+  df$Header <- ifelse(df$Header == "     dont Union européenne", "Clients : étranger UE", df$Header)
+  df$Header <- ifelse(df$Header == "Total de toutes les dépenses professionnelles", "TotalDépensesProfessionnelles", df$Header)
+  df$Header <- ifelse(df$Header == "Administrations", "Clients : Administrations", df$Header)
+  df$Header <- ifelse(df$Header == "Particuliers", "Clientèle : Particuliers", df$Header)
+  df$Header <- ifelse(df$Header == "Entreprises", "Clientèle : Entreprises", df$Header)
+  return(df)
+}
+
+# Pour supprimer des lignes
+supprimer_lignes <- function(df) {
+  df <- df[!df$Header %in% c("Achats de produits alimentaires (y compris boissons et plats cuisinés)","SO= Sans objet ; NR = Non renseigné.","Sous-traitance : études et prestations de services incorporées à la production","Sous-traitance : matériel, équipements et travaux incorporés à la production"),]
+  return(df)
+}
+
+# Appliquer les fonctions à chaque data.frame de la liste
+data_hr <- lapply(data_hr, function(df) {
+  df <- renommerhr(df)
+  df <- supprimer_lignes(df)
+  return(df)
+})
+```
+
+```{r}
+library(dplyr)
+
+# Liste pour stocker les nouveaux dataframes
+dataC <- list()
+
+# Itérer sur chaque variable unique dans la colonne Header
+for(variable in unique(data_c[[1]]$Header)) {
+  # Créer un data.frame pour stocker les données de la variable courante
+  df_variable <- data.frame(Année = 2016:2021)
+  
+  # Itérer sur chaque secteur
+  for(secteur in names(data_c)) {
+    # Extraire les valeurs pour la variable courante et le secteur courant
+    valeurs <- data_c[[secteur]] %>%
+      filter(Header == variable) %>%
+      select(-Header) %>% 
+      t() %>% 
+      as.data.frame()
+    
+    # Nommer la colonne du secteur courant et fusionner avec df_variable
+    colnames(valeurs) <- secteur
+    df_variable <- cbind(df_variable, valeurs)
+  }
+  
+  # Enlever la première colonne 'Année' après la première itération, 
+  # car elle sera déjà incluse dans le df_variable à partir du second secteur
+  df_variable <- df_variable[-1]
+  
+  # Ajouter le data.frame à la liste
+  dataC[[variable]] <- df_variable
+}
+```
+
+```{r}
+library(dplyr)
+
+# Liste pour stocker les nouveaux dataframes
+dataHR <- list()
+
+# Itérer sur chaque variable unique dans la colonne Header
+for(variable in unique(data_hr[[1]]$Header)) {
+  # Créer un data.frame pour stocker les données de la variable courante
+  df_variable <- data.frame(Année = 2016:2021)
+  
+  # Itérer sur chaque secteur
+  for(secteur in names(data_hr)) {
+    # Extraire les valeurs pour la variable courante et le secteur courant
+    valeurs <- data_hr[[secteur]] %>%
+      filter(Header == variable) %>%
+      select(-Header) %>% 
+      t() %>% 
+      as.data.frame()
+    
+    # Nommer la colonne du secteur courant et fusionner avec df_variable
+    colnames(valeurs) <- secteur
+    df_variable <- cbind(df_variable, valeurs)
+  }
+  
+  # Enlever la première colonne 'Année' après la première itération, 
+  # car elle sera déjà incluse dans le df_variable à partir du second secteur
+  df_variable <- df_variable[-1]
+  
+  # Ajouter le data.frame à la liste
+  dataHR[[variable]] <- df_variable
+}
+```
+
+#STATISTIQUES DESCRIPTIVES DONNEES NATIONALES
+
+```{r}
+# Fonction pour tracer une série temporelle avec une ligne horizontale pour la moyenne
+plot_time_series_with_mean <- function(ts_data, y_label, start_date) {
+  # Filtrer les données pour conserver celles à partir de start_date
+  ts_data_filtered <- ts_data[ts_data[[1]] >= start_date,]
+  
+  mean_val <- mean(ts_data_filtered[[2]], na.rm = TRUE)
+  
+  # Tracer la série temporelle filtrée
+  xlims <- range(ts_data_filtered[[1]], na.rm = TRUE)
+  plot(ts_data_filtered[[1]], ts_data_filtered[[2]], type = 'l', 
+       ylab = y_label, xlab = "Date", main = paste(names(ts_data)[2], "depuis", format(as.Date(start_date), "%Y")), xlim = xlims)
+  
+  # Ajouter une ligne horizontale à la moyenne, en rouge
+  abline(h = mean_val, col = "red", lty = "dashed")
+}
+
+# Labels de l'axe des y pour chaque graphique
+y_labels <- c("En %", "Prix par baril, en €", "En milliers d'individus", "En %", "Base 100", "Base 100",
+              "Base 100", "En %", "Base 100", "Base 100", "Base 100", "En %", 
+              "En % - Base 2014", "En %")
+
+
+
+```
+
+```{r}
+# Avant la boucle, définir les dimensions souhaitées pour les graphiques
+width <- 800 # Largeur en pixels
+height <- 600 # Hauteur en pixels
+units <- "px" # Unités (px pour pixels)
+
+start_date <- "1960-01-01"
+output_folder <- base_path
+
+for (i in seq_along(data_france)) {
+    # Construire le nom du fichier et ouvrir un nouveau fichier PNG
+    output_file <- paste(output_folder, "graphique_", i, ".png", sep="")
+    png(output_file)
+    
+    # Générer le graphique
+    plot_time_series_with_mean(data_france[[i]], y_labels[i], start_date)
+    
+    # Fermer le fichier PNG
+    dev.off()
+}
+```
+
+#STATISTIQUES DESCRIPTIVES DONNEES SECTORIELLES
+
+```{r}
+# Définir les noms des secteurs pour le Commerce
+noms_secteursC <- c(
+  "C471" = "Commerce de détail en magasin non spécialisé",
+  "C472" = "Commerce de détail alimentaire en magasin spécialisé",
+  "C473" = "Commerce de détail de carburants en magasin spécialisé",
+  "C474" = "Commerce de détail d'équipements de l'information et de la communication en magasin spécialisé",
+  "C475" = "Commerce de détail d'autres équipements du foyer en magasin spécialisé",
+  "C476" = "Commerce de détail de biens culturels et de loisirs en magasin spécialisé",
+  "C477" = "Autres commerces de détail en magasin spécialisé",
+  "C478" = "Commerce de détail sur éventaires et marchés",
+  "C479" = "Commerce de détail hors magasin, éventaires ou marchés"
+)
+
+# Définir les noms des secteurs pour l'hôtellerie et la restauration
+noms_secteursHR <- c(
+  "HR551" = "Hôtels et hébergement similaire",
+  "HR552" = "Hébergement touristique et autre hébergement de courte durée",
+  "HR553" = "Terrains de camping et parcs pour caravanes ou véhicules de loisirs",
+  "HR561" = "Restaurants et services de restauration mobile",
+  "HR562" = "Traiteurs et autres services de restauration",
+  "HR563" = "Débits de boissons"
+)
+
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# Fonction pour tracer un graphique pour un dataframe donné
+plot_dataframe <- function(df, sector_name) {
+  # Assurer que les années sont une colonne, pas les noms des lignes
+  df$Année <- rownames(df)
+  rownames(df) <- NULL
+  
+  # Transformation du dataframe en format long pour le graphique
+  df_long <- pivot_longer(df, cols = -Année, names_to = "Observation", values_to = "Valeur")
+  
+  # Tracer le graphique avec ggplot
+  gg <- ggplot(df_long, aes(x = as.numeric(Année), y = Valeur, group = Observation, colour = Observation)) +
+    geom_line() + 
+    geom_point() +
+    theme_minimal() +
+    labs(title = paste("Données pour", sector_name),
+         x = "Année",
+         y = "Valeur",
+         colour = "Observation")
+  
+  # Afficher le graphique
+  print(gg)
+}
+
+```
+
+```{r}
+output_folder <- base_path # Chemin modifié
+
+# Itération sur chaque dataframe dans la liste et tracer un graphique
+for(i in seq_along(dataHR)) {
+  plot_dataframe(dataHR[[i]], names(dataHR[i]))
+}
+
+
+for(i in seq_along(dataHR)) {
+    # Construire le nom du fichier et ouvrir un nouveau fichier PNG
+    output_file <- paste(output_folder, "graphique_", i, ".png", sep="")
+    png(output_file)
+    
+    # Générer le graphique
+    plot_dataframe(dataHR[[i]], names(dataHR[i]))
+    
+    # Fermer le fichier PNG
+    dev.off()
+}
+
+```
+
+
+```{r}
+
+output_folder <- base_path # Chemin modifié
+
+for(i in seq_along(dataC)) {
+    # Construire le nom du fichier et ouvrir un nouveau fichier PNG
+    output_file <- paste(output_folder, "graphique_", i, ".png", sep="")
+    png(output_file)
+    
+    # Générer le graphique
+    plot_dataframe(dataC[[i]], names(dataC[i]))
+    
+    # Fermer le fichier PNG
+    dev.off()
+}
+```
+
+
+```{r}
+library(dplyr)
+
+MoyennesData_C <- lapply(data_c, function(df) {
+  # Calculer la moyenne de chaque ligne pour les colonnes 2016 à 2021
+  df$Mean <- rowMeans(df[2:7], na.rm = TRUE)
+  # Sélectionner uniquement la colonne Header et la colonne Mean
+  df <- df %>% select(Header, Mean)
+  return(df)
+})
+
+# Boucle pour afficher chaque dataframe avec un titre
+for (i in seq_along(MoyennesData_C)) {
+  # Afficher le titre
+  cat("Titre du dataframe :", noms_secteursC[i], "\n")
+  
+  # Afficher le contenu du dataframe
+  print(MoyennesData_C[[i]])
+  
+  # Ajouter une ligne vide pour séparer les affichages
+  cat("\n\n")
+}
+
+```
+
+```{r echo=FALSE}
+for (i in seq_along(MoyennesData_C)) {
+  cat(paste0("## ", noms_secteursC[i], "\n"))
+  print(MoyennesData_C[[i]])
+}
+```
+
+```{r}
+library(dplyr)
+
+MoyennesData_HR <- lapply(data_hr, function(df) {
+  # Calculer la moyenne de chaque ligne pour les colonnes 2016 à 2021
+  df$Mean <- rowMeans(df[2:7], na.rm = TRUE)
+  # Sélectionner uniquement la colonne Header et la colonne Mean
+  df <- df %>% select(Header, Mean)
+  return(df)
+})
+
+# Boucle pour afficher chaque dataframe avec un titre
+for (i in seq_along(MoyennesData_HR)) {
+  # Afficher le titre
+  cat("Titre du dataframe :", noms_secteursHR[i], "\n")
+  
+  # Afficher le contenu du dataframe
+  print(MoyennesData_HR[[i]])
+  
+  # Ajouter une ligne vide pour séparer les affichages
+  cat("\n\n")
+}
+
+```
+
+```{r echo=FALSE}
+for (i in seq_along(MoyennesData_HR)) {
+  cat(paste0("## ", noms_secteursHR[i], "\n"))
+  print(MoyennesData_HR[[i]])
+}
+```
+
+
+
+```{r}
+library(dplyr)
+
+# Liste pour stocker les nouveaux dataframes
+MoyennesDataC <- list()
+
+# Itérer sur chaque variable unique dans la colonne Header
+for(variable in unique(MoyennesData_C[[1]]$Header)) {
+  # Créer un data.frame pour stocker les données de la variable courante
+  df_variable <- data.frame("Secteur")
+  
+  # Itérer sur chaque secteur
+  for(secteur in names(MoyennesData_C)) {
+    # Extraire les valeurs pour la variable courante et le secteur courant
+    valeurs <- MoyennesData_C[[secteur]] %>%
+      filter(Header == variable) %>%
+      select(-Header) %>% 
+      t() %>% 
+      as.data.frame()
+    
+    # Nommer la colonne du secteur courant et fusionner avec df_variable
+    colnames(valeurs) <- secteur
+    df_variable <- cbind(df_variable, valeurs)
+  }
+  
+  # Enlever la première colonne 'Année' après la première itération, 
+  # car elle sera déjà incluse dans le df_variable à partir du second secteur
+  df_variable <- df_variable[-1]
+  
+  # Ajouter le data.frame à la liste
+  MoyennesDataC[[variable]] <- df_variable
+}
+```
+
+```{r}
+library(dplyr)
+
+# Liste pour stocker les nouveaux dataframes
+MoyennesDataHR <- list()
+
+# Itérer sur chaque variable unique dans la colonne Header
+for(variable in unique(MoyennesData_HR[[1]]$Header)) {
+  # Créer un data.frame pour stocker les données de la variable courante
+  df_variable <- data.frame("Secteur")
+  
+  # Itérer sur chaque secteur
+  for(secteur in names(MoyennesData_HR)) {
+    # Extraire les valeurs pour la variable courante et le secteur courant
+    valeurs <- MoyennesData_HR[[secteur]] %>%
+      filter(Header == variable) %>%
+      select(-Header) %>% 
+      t() %>% 
+      as.data.frame()
+    
+    # Nommer la colonne du secteur courant et fusionner avec df_variable
+    colnames(valeurs) <- secteur
+    df_variable <- cbind(df_variable, valeurs)
+  }
+  
+  # Enlever la première colonne 'Année' après la première itération, 
+  # car elle sera déjà incluse dans le df_variable à partir du second secteur
+  df_variable <- df_variable[-1]
+  
+  # Ajouter le data.frame à la liste
+  MoyennesDataHR[[variable]] <- df_variable
+}
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# Fonction pour tracer un graphique en barres pour un dataframe donné
+plot_bar_chart <- function(df, sector_name) {
+  # Assurer que les noms des colonnes sont de type caractère pour éviter des problèmes avec ggplot2
+  names(df) <- as.character(names(df))
+  
+  # Convertir le dataframe du format large au format long
+  df_long <- pivot_longer(df, cols = -0, names_to = "Année", values_to = "Valeur")
+  
+  # Tracer un graphique en barres
+  p <- ggplot(df_long, aes(x = Année, y = Valeur, fill = Année)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    scale_fill_brewer(palette = "Reds", name = "Année") +
+    labs(title = paste(sector_name), 
+         x = "Secteurs", 
+         y = "Valeur") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5),
+          legend.position = "none")  # Ajustements esthétiques
+  
+  # Afficher le graphique
+  print(p)
+}
+
+output_folder <- base_path # Chemin modifié
+
+# Itérer sur chaque dataframe dans la liste et tracer un graphique en barres
+for(i in seq_along(MoyennesDataHR)) {
+  # Extraire le nom du secteur (supposant que c'est le nom de l'élément de la liste)
+  sector_name <- names(MoyennesDataHR[i])
+  
+  # Construire le nom du fichier et ouvrir un nouveau fichier PNG
+    output_file <- paste(output_folder, "graphiqueMoy_", i, ".png", sep="")
+    png(output_file)
+    
+  # Tracer un graphique en barres pour le dataframe actuel
+  plot_bar_chart(MoyennesDataHR[[i]], sector_name)
+  
+    # Fermer le fichier PNG
+    dev.off()
+}
+```
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# Fonction pour tracer un graphique en barres pour un dataframe donné
+plot_bar_chart <- function(df, sector_name) {
+  # Assurer que les noms des colonnes sont de type caractère pour éviter des problèmes avec ggplot2
+  names(df) <- as.character(names(df))
+  
+  # Convertir le dataframe du format large au format long
+  df_long <- pivot_longer(df, cols = -0, names_to = "Année", values_to = "Valeur")
+  
+  # Tracer un graphique en barres
+  p <- ggplot(df_long, aes(x = Année, y = Valeur, fill = Année)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    scale_fill_brewer(palette = "Reds", name = "Année") +
+    labs(title = paste(sector_name), 
+         x = "Secteurs", 
+         y = "Valeur") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 0, vjust = 0.5),
+          legend.position = "none")  # Ajustements esthétiques
+  
+  # Afficher le graphique
+  print(p)
+}
+
+output_folder <- base_path # Chemin modifié
+
+# Itérer sur chaque dataframe dans la liste et tracer un graphique en barres
+for(i in seq_along(MoyennesDataC)) {
+  # Extraire le nom du secteur (supposant que c'est le nom de l'élément de la liste)
+  sector_name <- names(MoyennesDataC[i])
+  
+  # Construire le nom du fichier et ouvrir un nouveau fichier PNG
+    output_file <- paste(output_folder, "graphiqueMoy_", i, ".png", sep="")
+    png(output_file)
+    
+  # Tracer un graphique en barres pour le dataframe actuel
+  plot_bar_chart(MoyennesDataC[[i]], sector_name)
+  
+    # Fermer le fichier PNG
+    dev.off()
+}
+```
+
+#Commerce VS Hotellerie Restauration
+
+```{r}
+# Exemple simplifié pour identifier les variables communes
+variables_c <- unique(unlist(lapply(data_c, function(df) df$Header)))
+variables_hr <- unique(unlist(lapply(data_hr, function(df) df$Header)))
+
+variables_communes <- intersect(variables_c, variables_hr)
+print(variables_communes)
+```
+
+```{r}
+library(dplyr)
+
+# Créons une liste des en-têtes des lignes d'intérêt
+variables_of_interest <- c(
+  "Chiffre d'affaires hors taxes (en millions d'euros)",            
+  "Effectifs équivalent temps plein (ETP) sur l'exercice comptable",
+  "Nombre total d'entreprises",                                      
+  "TotalDépensesProfessionnelles"
+)
+
+# Fonction pour calculer les moyennes des années pour une ligne donnée
+calculate_yearly_means <- function(df, line_header) {
+  line <- filter(df, Header == line_header)
+  # En supposant que les colonnes pour les années sont de type numérique
+  mean_data <- colMeans(line[2:7], na.rm = TRUE)
+  return(mean_data)
+}
+
+# Calculer la moyenne pour chaque dataframe et chaque variable d'intérêt
+means_list_c <- lapply(data_c, function(df) {
+  sapply(variables_of_interest, function(var) calculate_yearly_means(df, var))
+})
+
+means_list_hr <- lapply(data_hr, function(df) {
+  sapply(variables_of_interest, function(var) calculate_yearly_means(df, var))
+})
+
+# Calculer la moyenne globale pour chaque type de dataframe
+global_means_c <- Reduce("+", means_list_c) / length(data_c)
+global_means_hr <- Reduce("+", means_list_hr) / length(data_hr)
+
+"Moyennes Secteur Commerce"
+print(global_means_c)
+"Moyennes Secteur Hotellerie-Restauration"
+print(global_means_hr)
+
+```
+
+```{r}
+# Calcul de la moyenne totale pour chaque variable dans le tableau data_c
+average_over_years_c <- colMeans(global_means_c, na.rm = TRUE)
+
+# Calcul de la moyenne totale pour chaque variable dans le tableau data_hr
+average_over_years_hr <- colMeans(global_means_hr, na.rm = TRUE)
+
+# Création d'un dataframe pour les moyennes totales
+results_df <- data.frame(
+  C = average_over_years_c,
+  HR = average_over_years_hr
+)
+
+# Nommer les lignes du dataframe avec les noms des variables
+row.names(results_df) <- c(
+  "Chiffre d'affaires hors taxes (en millions d'euros)",
+  "Effectifs équivalent temps plein (ETP) sur l'exercice comptable",
+  "Nombre total d'entreprises",
+  "TotalDépensesProfessionnelles"
+)
+
+# Affichage des résultats sous forme de tableau
+print(results_df)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# On ajoute les noms des variables comme une colonne dans le dataframe
+results_df$Variable <- row.names(results_df)
+
+# On transforme le dataframe en format long, adapté pour ggplot2
+results_long <- pivot_longer(
+  results_df, 
+  cols = c(C, HR), 
+  names_to = "Secteur", 
+  values_to = "Moyenne"
+)
+
+# On remplace les abréviations par les noms complets
+results_long$Secteur <- recode(results_long$Secteur,
+  C = "Commerce de détail",
+  HR = "Hôtellerie Restauration"
+)
+
+# On trace le graphique
+ggplot(results_long, aes(x = Variable, y = Moyenne, fill = Secteur)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Variable", y = "Moyenne par secteur", fill = "Secteur") +
+  scale_fill_manual(values = c("Commerce de détail" = "blue", "Hôtellerie Restauration" = "red")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 12, angle = 45, hjust = 1)) +
+  coord_flip() # Retourner les axes pour une meilleure lisibilité
+```
+
+#PREVISIONS SECTORIELLES
+
+##Series temporelles
+###HR
+```{r}
+# Convertir chaque colonne en une série temporelle
+ts_listHR <- lapply(dataHR, function(column) {
+  ts(column, start = c(2016), frequency = 1)
+})
+
+# Nommer les séries temporelles pour la référence
+names(ts_listHR) <- names(dataHR)
+
+# Afficher les séries temporelles
+ts_listHR
+```
+
+```{r}
+# Pour tracer toutes les séries temporelles sur des graphiques séparés mais dans une seule fenêtre
+output_folder <- base_path # Chemin modifié
+
+par(mfrow = c(3, 2)) # Réglage pour 3 lignes et 2 colonnes
+for(i in seq_along(ts_listHR)) {
+    # Construire le nom du fichier et ouvrir un nouveau fichier PNG
+    output_file <- paste(output_folder, "graphiqueby6_", i, ".png", sep="")
+    png(output_file)
+    
+    # Générer le graphique
+    plot(ts_listHR[[i]], main = names(ts_listHR)[i], xlab = "Year", ylab = "Value")
+    
+    # Fermer le fichier PNG
+    dev.off()
+}
+```
+
+```{r}
+# Initialisation d'une nouvelle liste pour stocker les séries temporelles séparées
+individual_ts_listHR <- list()
+
+# Pour chaque matrice dans ts_listC, séparer en séries temporelles individuelles
+for(matrix_name in names(ts_listHR)) {
+  matrix_data <- ts_listHR[[matrix_name]]
+  for(col in colnames(matrix_data)) {
+    # Le nom de la série temporelle individuelle
+    ts_name <- paste(matrix_name, col, sep = "_")
+    # Extraction de la série temporelle univariée pour la colonne actuelle
+    individual_ts_listHR[[ts_name]] <- ts(matrix_data[, col], start = c(2016), frequency = 1)
+  }
+}
+```
+
+```{r}
+# Initialisation d'une nouvelle liste pour stocker les séries temporelles jusqu'à 2019
+individual_ts_listHR_until_2019 <- list()
+
+# Pour chaque matrice dans ts_listC, séparer en séries temporelles individuelles
+for(matrix_name in names(ts_listHR)) {
+  matrix_data <- ts_listHR[[matrix_name]]
+  for(col in colnames(matrix_data)) {
+    # Le nom de la série temporelle individuelle
+    ts_name <- paste(matrix_name, col, sep = "_")
+    # Extraction de la série temporelle univariée pour la colonne actuelle
+    # et sélection des données jusqu'à l'année 2019
+    individual_ts_listHR_until_2019[[ts_name]] <- window(ts(matrix_data[, col], start = c(2016), frequency = 1), end = c(2019))
+  }
+}
+
+```
+
+```{r}
+library(forecast)
+
+# Fonction pour ajuster un modèle ARIMA et faire des prévisions
+forecast_individual_ts_listHR_until_2019 <- function(ts_data) {
+  fitted_model <- auto.arima(ts_data)
+  forecasted_values <- forecast(fitted_model, h=1)  # Prévoir pour une année
+  return(list(Model=fitted_model, Forecast=forecasted_values))
+}
+
+# Appliquer la fonction de prévision à chaque série temporelle individuelle
+forecasts_previsionsHR <- lapply(individual_ts_listHR_until_2019, forecast_individual_ts_listHR_until_2019)
+
+# Nommer les éléments de la liste des prévisions pour faciliter l'identification
+names(forecasts_previsionsHR) <- names(individual_ts_listHR_until_2019)
+
+results_previsionsHR <- lapply(names(forecasts_previsionsHR), function(name) {
+  f <- forecasts_previsionsHR[[name]]
+  data.frame(
+    Series = name,
+    Point.Forecast = f$Forecast$mean[1],  # La prévision ponctuelle
+    Lo.80 = f$Forecast$lower[1,"80%"],    # Borne inférieure de l'intervalle à 80%
+    Hi.80 = f$Forecast$upper[1,"80%"],    # Borne supérieure de l'intervalle à 80%
+    Lo.95 = f$Forecast$lower[1,"95%"],    # Borne inférieure de l'intervalle à 95%
+    Hi.95 = f$Forecast$upper[1,"95%"]     # Borne supérieure de l'intervalle à 95%
+  )
+})
+
+# Combiner les résultats en un seul dataframe pour l'affichage
+final_results_previsionsHR <- do.call(rbind, results_previsionsHR)
+
+# Afficher le dataframe final
+print(final_results_previsionsHR)
+
+```
+
+```{r}
+# Initialisation d'une nouvelle liste pour stocker les différences
+diff_resultsHR <- list()
+
+# Parcourir chaque série temporelle
+for(name in names(individual_ts_listHR_until_2019)) {
+  # Valeur réelle pour 2020
+  actual_2020 <- individual_ts_listHR[[name]][5]
+  
+  # Prévision pour 2020
+  forecast_2020 <- forecasts_previsionsHR[[name]]$Forecast$mean[1]
+  forecast_hi_95 <- forecasts_previsionsHR[[name]]$Forecast$upper[1, "95%"]
+  forecast_lo_95 <- forecasts_previsionsHR[[name]]$Forecast$lower[1, "95%"]
+  
+  # Calculer les différences
+  difference <- actual_2020 - forecast_2020
+  difference_hi_95 <- actual_2020 - forecast_hi_95
+  difference_lo_95 <- actual_2020 - forecast_lo_95
+  
+  # Créer un dataframe pour stocker la série, la valeur réelle, la prévision et les différences
+  diff_resultsHR[[name]] <- data.frame(
+    Series = name,
+    Actual_2020 = actual_2020,
+    Forecast_2020 = forecast_2020,
+    Difference = difference,
+    Difference_Hi_95 = difference_hi_95,
+    Difference_Lo_95 = difference_lo_95
+  )
+}
+
+# Combiner les résultats en un seul dataframe pour l'affichage
+final_diff_resultsHR <- do.call(rbind, diff_resultsHR)
+
+# Afficher le dataframe final avec les différences
+print(final_diff_resultsHR)
+
+```
+
+
+###C
+
+```{r}
+# Convertir chaque colonne en une série temporelle
+ts_listC <- lapply(dataC, function(column) {
+  ts(column, start = c(2016), frequency = 1)
+})
+
+# Nommer les séries temporelles pour la référence
+names(ts_listC) <- names(dataC)
+
+# Afficher les séries temporelles
+ts_listC
+```
+
+```{r}
+output_folder <- base_path # Chemin modifié
+
+par(mfrow = c(3, 2)) # Réglage pour 3 lignes et 2 colonnes
+for(i in seq_along(ts_listC)) {
+    if(i != 13) {# Construire le nom du fichier et ouvrir un nouveau fichier PNG
+    output_file <- paste(output_folder, "graphiqueby6_", i, ".png", sep="")
+    png(output_file)
+    
+    # Générer le graphique
+    plot(ts_listC[[i]], main = names(ts_listC)[i], xlab = "Year", ylab = "Value")
+    
+    # Fermer le fichier PNG
+    dev.off()
+    }
+}
+
+```
+
+```{r}
+# Initialisation d'une nouvelle liste pour stocker les séries temporelles séparées
+individual_ts_listC <- list()
+
+# Pour chaque matrice dans ts_listC, séparer en séries temporelles individuelles
+for(matrix_name in names(ts_listC)) {
+  matrix_data <- ts_listC[[matrix_name]]
+  for(col in colnames(matrix_data)) {
+    # Le nom de la série temporelle individuelle
+    ts_name <- paste(matrix_name, col, sep = "_")
+    # Extraction de la série temporelle univariée pour la colonne actuelle
+    individual_ts_listC[[ts_name]] <- ts(matrix_data[, col], start = c(2016), frequency = 1)
+  }
+}
+
+# Maintenant individual_ts_listC contient les séries temporelles univariées nommées
+
+```
+
+```{r}
+# Initialisation d'une nouvelle liste pour stocker les séries temporelles jusqu'à 2019
+individual_ts_listC_until_2019 <- list()
+
+# Pour chaque matrice dans ts_listC, séparer en séries temporelles individuelles
+for(matrix_name in names(ts_listC)) {
+  matrix_data <- ts_listC[[matrix_name]]
+  for(col in colnames(matrix_data)) {
+    # Le nom de la série temporelle individuelle
+    ts_name <- paste(matrix_name, col, sep = "_")
+    # Extraction de la série temporelle univariée pour la colonne actuelle
+    # et sélection des données jusqu'à l'année 2019
+    individual_ts_listC_until_2019[[ts_name]] <- window(ts(matrix_data[, col], start = c(2016), frequency = 1), end = c(2019))
+  }
+}
+
+# Maintenant, individual_ts_listC_until_2019 contient les séries temporelles univariées jusqu'à l'année 2019
+
+```
+
+```{r}
+library(forecast)
+
+individual_ts_listC_until_2019 <- na.interp(individual_ts_listC_until_2019)
+
+forecast_individual_ts_listC_until_2019 <- function(ts_data) {
+  # Omettre les NA de la série temporelle
+  ts_data_clean <- na.omit(ts_data)
+  
+  # Vérifier si la série temporelle nettoyée est suffisamment longue pour l'analyse
+  if (length(ts_data_clean) > 2) {
+    fitted_model <- auto.arima(ts_data_clean)
+    forecasted_values <- forecast(fitted_model, h=1)  # Prévoir pour une année
+    return(list(Model=fitted_model, Forecast=forecasted_values))
+  } else {
+    return(NULL) # Retourne NULL pour les séries temporelles qui ne peuvent pas être modélisées
+  }
+}
+
+
+# Filtrer les séries temporelles qui contiennent des NA
+individual_ts_listC_until_2019 <- lapply(individual_ts_listC_until_2019, function(ts) {
+  if (all(!is.na(ts))) {
+    return(ts)
+  } else {
+    return(NULL)
+  }
+})
+
+# Nettoyer la liste pour éliminer les éléments NULL
+individual_ts_listC_until_2019 <- Filter(Negate(is.null), individual_ts_listC_until_2019)
+
+# Appliquer la fonction de prévision
+forecasts_previsionsC <- lapply(individual_ts_listC_until_2019, forecast_individual_ts_listC_until_2019)
+
+
+# Nommer les éléments de la liste des prévisions pour faciliter l'identification
+names(forecasts_previsionsC) <- names(individual_ts_listC_until_2019)
+
+results_previsionsC <- lapply(names(forecasts_previsionsC), function(name) {
+  f <- forecasts_previsionsC[[name]]
+  data.frame(
+    Series = name,
+    Point.Forecast = f$Forecast$mean[1],  # La prévision ponctuelle
+    Lo.80 = f$Forecast$lower[1,"80%"],    # Borne inférieure de l'intervalle à 80%
+    Hi.80 = f$Forecast$upper[1,"80%"],    # Borne supérieure de l'intervalle à 80%
+    Lo.95 = f$Forecast$lower[1,"95%"],    # Borne inférieure de l'intervalle à 95%
+    Hi.95 = f$Forecast$upper[1,"95%"]     # Borne supérieure de l'intervalle à 95%
+  )
+})
+
+# Combiner les résultats en un seul dataframe pour l'affichage
+final_results_previsionsC <- do.call(rbind, results_previsionsC)
+
+# Afficher le dataframe final
+print(final_results_previsionsC)
+
+```
+
+
+```{r}
+# Initialisation d'une nouvelle liste pour stocker les différences
+diff_resultsC <- list()
+
+# Parcourir chaque série temporelle
+for(name in names(individual_ts_listC_until_2019)) {
+  # Valeur réelle pour 2020
+  actual_2020 <- individual_ts_listC[[name]][5]
+  
+  # Prévision pour 2020
+  forecast_2020 <- forecasts_previsionsC[[name]]$Forecast$mean[1]
+  forecast_hi_95 <- forecasts_previsionsC[[name]]$Forecast$upper[1, "95%"]
+  forecast_lo_95 <- forecasts_previsionsC[[name]]$Forecast$lower[1, "95%"]
+  
+  # Calculer les différences
+  difference <- actual_2020 - forecast_2020
+  difference_hi_95 <- actual_2020 - forecast_hi_95
+  difference_lo_95 <- actual_2020 - forecast_lo_95
+  
+  # Créer un dataframe pour stocker la série, la valeur réelle, la prévision et les différences
+  diff_resultsC[[name]] <- data.frame(
+    Series = name,
+    Actual_2020 = actual_2020,
+    Forecast_2020 = forecast_2020,
+    Difference = difference,
+    Difference_Hi_95 = difference_hi_95,
+    Difference_Lo_95 = difference_lo_95
+  )
+}
+
+# Combiner les résultats en un seul dataframe pour l'affichage
+final_diff_resultsC <- do.call(rbind, diff_resultsC)
+
+# Afficher le dataframe final avec les différences
+print(final_diff_resultsC)
+
+
+```
+
+
+#PREVISIONS DATAFRANCE
+
+```{r}
+library(lubridate)
+
+convert_to_ts <- function(df, frequency) {
+  # Data.frame trié par date en ordre croissant
+  df <- df[order(as.Date(df[[1]], format="%Y-%m-%d")), ]
+  
+  # Convertir la première colonne en objet de classe Date s'il ne l'est pas déjà
+  start_date <- as.Date(min(df[[1]]), format="%Y-%m-%d")
+  start_year <- year(start_date)
+  
+  # Déterminer la période de départ en fonction de la fréquence
+  start_period <- if (frequency == 4) {
+    # Les trimestres en R sont indexés à partir de 1
+    quarter(start_date)
+  } else {
+    # `ts` utilise l'indexation de mois à partir de 1
+    month(start_date)
+  }
+  
+  # Créer l'objet série temporelle
+  ts_data <- ts(df[[2]], start=c(start_year, start_period), frequency=frequency)
+  return(ts_data)
+}
+
+# Noms de dataframes trimestriels et mensuels
+quarterly_names <- c("CHOMAGE", "EMPLOI SALARIE", "FBCF", "INDICE REF LOYERS",
+                     "INDICES LOYERS COMMERCIAUX", "SOLDEEXT CONTRIB PIB", "PIB")
+monthly_names <- c("COURS MATIERES PREMIERES", "INDICATEUR CLIMAT AFFAIRE COMMERCE DETAIL + AUTOMOBILE", "INDICATEUR CLIMAT AFFAIRE SERVICES",   
+                   "INDICE VOLUME VENTES", "INDICE CONFIANCE MENAGES", "INDICE PRIX CONSO", "INFLATION SOUSJACENTE")
+
+# Initialisation d'une nouvelle liste pour stocker les séries temporelles
+ts_list_datafrance <- list()
+
+# Appliquer les transformations et convertir en séries temporelles
+for(name in names(data_france)) {
+  df <- data_france[[name]]
+  
+  if (name %in% quarterly_names) {
+    ts_list_datafrance[[name]] <- convert_to_ts(df, frequency = 4)
+  } else if (name %in% monthly_names) {
+    ts_list_datafrance[[name]] <- convert_to_ts(df, frequency = 12)
+  } else {
+    stop(paste("Frequency for", name, "is not defined."))
+  }
+}
+```
+
+```{r}
+# Chargement des packages nécessaires
+library(tseries)
+library(forecast)
+
+# Fonction pour tester la tendance dans une série temporelle et afficher ACF et PACF
+test_trend_with_plots <- function(ts_data, lag.max=NULL) {
+  # Suppression des valeurs NA ou imputation si nécessaire
+  ts_data <- na.omit(ts_data)  # Cette ligne supprime les valeurs NA
+
+  # Vérifier s'il reste des données après la suppression des NA
+  if (length(ts_data) == 0) {
+    return("Insufficient data after NA removal")
+  }
+  
+  # Test de Dickey-Fuller augmenté
+  adf_test <- adf.test(ts_data, alternative = "stationary")
+  
+  # Si la p-value est inférieure à un seuil (typiquement 0,05), la série est considérée comme stationnaire
+  is_stationary <- adf_test$p.value < 0.05
+  
+  # Afficher ACF et PACF
+  par(mfrow=c(2,1)) # Diviser la fenêtre graphique en deux pour les graphiques ACF et PACF
+  acf(ts_data, lag.max=lag.max, main="ACF")
+  pacf(ts_data, lag.max=lag.max, main="PACF")
+  par(mfrow=c(1,1)) # Revenir à un seul graphique par fenêtre graphique
+
+  # Retourne si la série est stationnaire ou présente une tendance
+  return(ifelse(is_stationary, "Stationary", "Trend"))
+}
+
+# Appliquer le test de tendance et afficher les graphiques ACF et PACF pour chaque série temporelle
+trend_results <- lapply(ts_list_datafrance, test_trend_with_plots)
+
+# Afficher les résultats
+print(trend_results)
+
+```
+
+
+```{r}
+library(tseries)
+library(forecast)
+
+# Fonction pour calculer le nombre de différenciations nécessaires et stationnariser les séries
+prepare_series <- function(ts_data) {
+  num_diffs <- ndiffs(ts_data)
+  ts_stationary <- ts_data
+  if(num_diffs > 0) {
+    ts_stationary <- diff(ts_stationary, differences = num_diffs)
+  }
+  list(original = ts_data, stationary = ts_stationary, diffs = num_diffs)
+}
+
+# Appliquer la fonction à toutes les séries
+stationary_series_info <- lapply(ts_list_datafrance, prepare_series)
+
+```
+
+```{r}
+library(forecast)
+library(tseries)
+
+# Ajuster les modèles et faire des prévisions pour 2020-2023
+forecast_results <- list()
+
+# Calculer le nombre de périodes à prévoir pour chaque série, en tenant compte de leur fréquence
+# Puisque nous prévoyons jusqu'à la fin de 2023, pour les séries mensuelles, cela signifie 4 ans * 12 mois = 48 périodes
+# Pour les séries trimestrielles, cela signifie 4 ans * 4 trimestres = 16 périodes
+periods_to_forecast <- sapply(names(stationary_series_info), function(name) {
+  ifelse(name %in% monthly_names, 4*12, 4*4)
+})
+
+
+forecast_data <- list()
+
+for(name in names(stationary_series_info)) {
+  # Extraire la fréquence en fonction du nom de la série
+  frequency <- ifelse(name %in% monthly_names, 12, 4)
+  
+  # Extraire la série originale et appliquer la fenêtre jusqu'à fin 2019
+  original_ts <- window(stationary_series_info[[name]]$original)
+  
+  # Extraire la série stationnaire différenciée
+  stationary_ts <- window(stationary_series_info[[name]]$stationary, end=c(2019, frequency))
+  
+  # Extraire les informations de différenciation
+  diffs <- stationary_series_info[[name]]$diffs
+  
+  # Stocker dans une liste pour chaque série
+  forecast_data[[name]] <- list(
+    original = original_ts,
+    stationary = stationary_ts,
+    diffs = diffs
+  )
+}
+
+
+# Ajuster les modèles et faire des prévisions pour 2020-2023
+forecast_results <- list()
+
+for(name in names(stationary_series_info)) {
+  # Obtenir les informations de la série
+  info <- stationary_series_info[[name]]
+  
+  # Détecter la fréquence en fonction du nom de la série
+  frequency <- ifelse(name %in% monthly_names, 12, 4)
+  
+  # Utiliser la série originale jusqu'à fin 2019
+  original_ts <- window(info$original, end=c(2019, frequency))
+  
+  # Utiliser la série stationnaire pour l'ajustement du modèle
+  # Si 'diffs' est supérieur à 0, la série a été différenciée avant l'ajustement
+  diffs <- info$diffs
+  
+  # Ajuster un modèle ARIMA en tenant compte du degré de différenciation
+  fit <- auto.arima(original_ts, D = diffs)
+  
+  # Le nombre de périodes à prévoir dépend de la fréquence
+  h <- ifelse(frequency == 12, (2023-2019)*12, (2023-2019)*4)
+  
+  # Faire des prévisions
+  future <- forecast(fit, h = h)
+  
+  # Stocker les résultats
+  forecast_results[[name]] <- list(model = fit, forecast = future)
+}
+
+
+# Afficher les résultats
+print(forecast_results)
+
+```
+
+```{r}
+# Fonction pour tracer les prévisions avec les séries historiques
+plot_forecasts <- function(ts_data, forecast_info, name, frequency) {
+  # Le dernier point de données historiques
+  end_historical <- if(frequency == 12) {
+    c(2019, 12)  # Décembre 2019 pour les séries mensuelles
+  } else {
+    c(2019, 4)  # T4 2019 pour les séries trimestrielles
+  }
+  
+  # Le point de départ pour les prévisions
+  start_forecast <- if(frequency == 12) {
+    c(2020, 1)  # Janvier 2020 pour les séries mensuelles
+  } else {
+    c(2020, 1)  # T1 2020 pour les séries trimestrielles
+  }
+  
+  # Tracer les séries historiques jusqu'à la fin des données historiques
+  ts_data_until_end <- window(ts_data, end = end_historical)
+  plot(ts_data_until_end, main = paste("Forecast and Historical Data for", name), 
+       xlab = "Time", ylab = "Value", col = 'blue', xlim = c(start(ts_data)[1], 2022), 
+       ylim = range(ts_data, forecast_info$forecast$mean, na.rm = TRUE))
+
+  # Créer un ts object pour les prévisions avec le point de départ correct
+  ts_forecast <- ts(forecast_info$forecast$mean, start = start_forecast, frequency = frequency)
+  lines(ts_forecast, col = 'red')
+
+  # Ajouter les intervalles de confiance
+  if (!is.null(forecast_info$forecast$lower)) {
+    ts_lower <- ts(forecast_info$forecast$lower[, 2], start = start_forecast, frequency = frequency)
+    ts_upper <- ts(forecast_info$forecast$upper[, 2], start = start_forecast, frequency = frequency)
+    
+    lines(ts_lower, col = 'grey', lty = "dashed")
+    lines(ts_upper, col = 'grey', lty = "dashed")
+  }
+  
+  legend("bottomleft", legend = c("95% Confidence Interval", "80% Confidence Interval"), 
+         col = c('grey', 'grey'), lty = c("dashed", "dashed"), bty = "n")
+}
+
+output_folder <- base_path # Chemin modifié
+
+# Tracer les séries historiques avec prévisions pour chaque série
+for(name in names(forecast_results)) {
+  frequency <- ifelse(name %in% monthly_names, 12, 4)
+  plot_forecasts(ts_list_datafrance[[name]], forecast_results[[name]], name, frequency)
+}
+
+for(i in seq_along(ts_list_datafrance)) {
+    # Construire le nom du fichier et ouvrir un nouveau fichier PNG
+    output_file <- paste(output_folder, "graphprevFR_", i, ".png", sep="")
+    png(output_file)
+    
+    # Générer le graphique
+    plot_forecasts(ts_list_datafrance[[name]], forecast_results[[name]], name, frequency)
+    
+    # Fermer le fichier PNG
+    dev.off()
+}
+```
+
+
+
+```{r}
+# Initialisation d'une nouvelle liste pour stocker les différences
+diff_results <- list()
+
+for(name in names(forecast_results)) {
+  # Extraire les prévisions pour la série
+  forecast_info <- forecast_results[[name]]$forecast
+  
+  # Extraire les valeurs réelles correspondant aux années de prévision
+  # Ceci suppose que la série originale inclut les données jusqu'à 2023
+  actual_values <- window(stationary_series_info[[name]]$original, start=c(2020, 1))
+  
+  # Calculer le nombre de points de données réels
+  n_actual <- length(actual_values)
+  
+  # Ne pas dépasser les limites des données de prévision
+  n_forecast <- length(forecast_info$mean)
+  n_to_compare <- min(n_actual, n_forecast)
+  
+  # Calculer les différences pour chaque point où nous avons des données réelles et des prévisions
+  differences <- actual_values[1:n_to_compare] - forecast_info$mean[1:n_to_compare]
+  
+  # Préparer un dataframe pour les résultats
+  diff_df <- data.frame(
+    Series = rep(name, n_to_compare),
+    Time = time(actual_values)[1:n_to_compare],
+    Actual = actual_values[1:n_to_compare],
+    Forecast = forecast_info$mean[1:n_to_compare],
+    Difference = differences
+  )
+  
+  # Ajouter les intervalles de confiance si disponibles pour la période comparée
+  if (n_forecast >= n_to_compare) {
+    diff_df$Lower_80 <- forecast_info$lower[1:n_to_compare, "80%"]
+    diff_df$Upper_80 <- forecast_info$upper[1:n_to_compare, "80%"]
+    diff_df$Lower_95 <- forecast_info$lower[1:n_to_compare, "95%"]
+    diff_df$Upper_95 <- forecast_info$upper[1:n_to_compare, "95%"]
+  }
+  
+  # Ajouter les résultats au tableau des différences
+  diff_results[[name]] <- diff_df
+}
+
+# Combiner les résultats en un seul dataframe pour l'affichage
+final_diff_results <- do.call(rbind, diff_results)
+
+# Afficher le dataframe final avec les différences
+print(final_diff_results)
+
+```
+
+
+#QUANTIFICATION DU MANQUE A GAGNER POTENTIEL
+
+
+##FRANCE
+
+```{r}
+
+# Étape 1: Filtrer les données pour garder uniquement les lignes des années 2020 et 2021
+# Nous utilisons la nouvelle colonne 'Year' pour le filtrage
+filtered_results_2020_2021 <- final_diff_results[final_diff_results$Time >= 2020 & 
+                                                  final_diff_results$Time <= 2021, ]
+
+# Étape 3: Supprimer les lignes avec NA dans les colonnes 'Actual', 'Forecast', et 'Difference'
+filtered_clean_results <- filtered_results_2020_2021[complete.cases(filtered_results_2020_2021[, c("Actual", "Forecast", "Difference")]), ]
+
+# Étape 4: Grouper les données par 'Series' et calculer les moyennes
+aggregated_results <- aggregate(cbind(Mean_Actual = Actual, Mean_Forecast = Forecast, Mean_Difference = Difference,
+                                      Mean_Lower80 = Lower_80, Mean_Upper80 = Upper_80, 
+                                      Mean_Lower95 = Lower_95, Mean_Upper95 = Upper_95) ~ Series,
+                                data = filtered_clean_results, FUN = mean)
+
+# Afficher les résultats résumés
+print(aggregated_results)
+
+```
+
+```{r}
+# Étape 1: Filtrer les données pour garder uniquement les lignes des années 2020 et 2021
+# Filtre pour Mars à Mai 2020
+data_mars_mai <- subset(final_diff_results, Time >= 2020.25 & Time <= 2020.50)
+
+# Filtre pour Novembre et Décembre 2020
+data_nov_dec <- subset(final_diff_results, Time >= 2020.75 & Time <= 2021.00)
+
+
+# Étape 3: Supprimer les lignes avec NA dans les colonnes 'Actual', 'Forecast', et 'Difference'
+data_mars_mai <- data_mars_mai[complete.cases(data_mars_mai[, c("Actual", "Forecast", "Difference")]), ]
+data_nov_dec <- data_nov_dec[complete.cases(data_nov_dec[, c("Actual", "Forecast", "Difference")]), ]
+
+# Pour la période de mars à mai 2020
+data_mars_mai <- aggregate(cbind(Actual = Actual, Forecast = Forecast,
+                                  Difference = Difference, DiffLower80 = Lower_80,
+                                  DiffUpper80 = Upper_80, DiffLower95 = Lower_95,
+                                  DiffUpper95 = Upper_95) ~ Series,
+                            data = data_mars_mai, FUN = function(x) c(mean = mean(x), sum = sum(x)))
+
+# Pour la période de novembre à décembre 2020
+data_nov_dec <- aggregate(cbind(Actual = Actual, Forecast = Forecast,
+                                 Difference = Difference, DiffLower80 = Lower_80,
+                                 DiffUpper80 = Upper_80, DiffLower95 = Lower_95,
+                                 DiffUpper95 = Upper_95) ~ Series,
+                           data = data_nov_dec, FUN = function(x) c(mean = mean(x), sum = sum(x)))
+
+
+# Afficher les résultats résumés
+print(data_mars_mai)
+print(data_nov_dec)
+```
+
+
+##C
+On va quantifier de 2020
+
+```{r}
+# Créer la nouvelle colonne pour l'agrégation
+final_diff_resultsC$Aggregated_Series <- gsub("_.*", "", final_diff_resultsC$Series)
+
+# Calculer la moyenne pour Actual et Forecast
+aggregated_means <- aggregate(cbind(MeanActual = Actual_2020, MeanForecast = Forecast_2020) ~ Aggregated_Series,
+                              data = final_diff_resultsC, FUN = mean)
+
+# Calculer la somme pour les différences
+aggregated_sums <- aggregate(cbind(SumsDifference = Difference, SumsDifference_Hi_95 = Difference_Hi_95,
+                                   SumsDifference_Lo_95 = Difference_Lo_95) ~ Aggregated_Series,
+                              data = final_diff_resultsC, FUN = sum)
+
+# Calculer le nombre de différences négatives
+aggregated_neg_diff_count <- aggregate(cbind(Neg_Diff_Count = Difference) ~ Aggregated_Series,
+                                       data = final_diff_resultsC, 
+                                       FUN = function(x) sum(x < 0, na.rm = TRUE))
+
+# Combiner les résultats en un seul dataframe
+aggregated_dataC <- merge(aggregated_means, aggregated_sums, by = "Aggregated_Series")
+aggregated_dataC <- merge(aggregated_dataC, aggregated_neg_diff_count, by = "Aggregated_Series")
+
+# Afficher les résultats résumés
+print(aggregated_dataC)
+
+
+```
+
+##HR
+
+```{r}
+# Créer la nouvelle colonne pour l'agrégation
+final_diff_resultsHR$Aggregated_Series <- gsub("_.*", "", final_diff_resultsHR$Series)
+
+# Calculer la moyenne pour Actual et Forecast
+aggregated_means <- aggregate(cbind(MeanActual = Actual_2020, MeanForecast = Forecast_2020) ~ Aggregated_Series,
+                              data = final_diff_resultsHR, FUN = mean)
+
+# Calculer la somme pour les différences
+aggregated_sums <- aggregate(cbind(SumsDifference = Difference, SumsDifference_Hi_95 = Difference_Hi_95,
+                                   SumsDifference_Lo_95 = Difference_Lo_95) ~ Aggregated_Series,
+                              data = final_diff_resultsHR, FUN = sum)
+
+# Calculer le nombre de différences négatives
+aggregated_neg_diff_count <- aggregate(cbind(Neg_Diff_Count = Difference) ~ Aggregated_Series,
+                                       data = final_diff_resultsHR, 
+                                       FUN = function(x) sum(x < 0, na.rm = TRUE))
+
+# Combiner les résultats en un seul dataframe
+aggregated_dataHR <- merge(aggregated_means, aggregated_sums, by = "Aggregated_Series")
+aggregated_dataHR <- merge(aggregated_dataHR, aggregated_neg_diff_count, by = "Aggregated_Series")
+
+# Afficher les résultats résumés
+print(aggregated_dataHR)
+
+
+```
+
+
+
+
+
